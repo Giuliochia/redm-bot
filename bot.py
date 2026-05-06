@@ -75,12 +75,7 @@ servers = {
     "nome": "West World 2.0",
     "whitelist": "Sì",
     "descrizione": "Server RedM italiano whitelist.",
-    "feature": [
-        "Roleplay immersivo",
-        "Community italiana",
-        "Sistema whitelist",
-        "Eventi e interazioni tra player"
-    ],
+    "feature": ["Roleplay immersivo", "Community italiana", "Sistema whitelist", "Eventi e interazioni tra player"],
     "discord": "https://discord.gg/8PTeBBzvk",
     "image": None,
     "badge": "⭐ SERVER CONSIGLIATO"
