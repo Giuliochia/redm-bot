@@ -37,7 +37,6 @@ servers = {
         "discord": "https://discord.gg/wildlandsita",
         "image": "wildlands.jpg"
     },
-
     "streets": {
         "nome": "Streets of Saints",
         "whitelist": "Sì",
@@ -46,7 +45,6 @@ servers = {
         "discord": "https://discord.gg/streetsofsaints",
         "image": "streets.png"
     },
-
     "madwest": {
         "nome": "Mad West",
         "whitelist": "Sì",
@@ -55,7 +53,6 @@ servers = {
         "discord": "https://discord.gg/E3gYt2EuTH",
         "image": "madwest.png"
     },
-
     "newhope": {
         "nome": "1886 New Hope",
         "whitelist": "Sì",
@@ -78,7 +75,6 @@ def home_keyboard():
 
 
 def format_public_server_post(server):
-
     features = "\n".join([f"- {f}" for f in server["feature"]])
 
     return f"""🏜 {server['nome']}
@@ -96,9 +92,7 @@ def format_public_server_post(server):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     if context.args and context.args[0] == "candidatura":
-
         context.user_data.clear()
 
         await update.message.reply_text(
@@ -116,7 +110,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     chat = update.effective_chat
     message = update.effective_message
 
@@ -126,7 +119,6 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def promo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     if update.effective_chat.id != GROUP_CHAT_ID:
         return
 
@@ -145,19 +137,16 @@ async def promo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     query = update.callback_query
     await query.answer()
 
     if query.data == "home":
-
         await query.edit_message_text(
             "🤠 RedM Server Hub Italia\n\nScegli cosa vuoi fare:",
             reply_markup=home_keyboard()
         )
 
     elif query.data == "server_list":
-
         keyboard = [
             [InlineKeyboardButton("🏜 Wildlands Italia", callback_data="wildlands")],
             [InlineKeyboardButton("🏜 Streets of Saints", callback_data="streets")],
@@ -172,9 +161,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data in servers:
-
         server = servers[query.data]
-
         features = "\n".join([f"- {f}" for f in server["feature"]])
 
         caption = f"""🏜 {server['nome']}
@@ -203,7 +190,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "candidate":
-
         await query.message.reply_text(
             "📨 Candidatura server\n\n"
             "Scrivi il nome del server:"
@@ -212,7 +198,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ASK_NAME
 
     elif query.data == "promo":
-
         link = f"https://t.me/{BOT_USERNAME}?start=candidatura"
 
         keyboard = [
@@ -228,7 +213,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "regole":
-
         await query.edit_message_text(
             "📜 REGOLE\n\n"
             "- Niente spam\n"
@@ -241,7 +225,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "admin_panel":
-
         await query.edit_message_text(
             "🧰 Pannello Admin\n\n"
             f"📨 Candidature in attesa: {len(pending_servers)}",
@@ -251,22 +234,18 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data.startswith("approve_"):
-
         submission_id = query.data.replace("approve_", "")
         server = pending_servers.get(submission_id)
 
         if not server:
-
             await query.edit_message_text(
                 "❌ Candidatura non trovata o già gestita."
             )
-
             return
 
         text = format_public_server_post(server)
 
         if GROUP_CHAT_ID:
-
             kwargs = {
                 "chat_id": GROUP_CHAT_ID,
                 "text": text,
@@ -285,16 +264,13 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         del pending_servers[submission_id]
 
     elif query.data.startswith("reject_"):
-
         submission_id = query.data.replace("reject_", "")
         server = pending_servers.get(submission_id)
 
         if not server:
-
             await query.edit_message_text(
                 "❌ Candidatura non trovata o già gestita."
             )
-
             return
 
         await query.edit_message_text(
@@ -305,7 +281,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     context.user_data["candidate"] = {
         "nome": update.message.text.strip()
     }
@@ -324,7 +299,6 @@ async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_wl_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     query = update.callback_query
     await query.answer()
 
@@ -341,7 +315,6 @@ async def ask_wl_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     context.user_data["candidate"]["descrizione"] = update.message.text.strip()
 
     await update.message.reply_text(
@@ -354,7 +327,6 @@ async def ask_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     raw_features = update.message.text.strip()
 
     features = [
@@ -373,11 +345,9 @@ async def ask_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     discord = update.message.text.strip()
 
     if "discord.gg" not in discord and "discord.com" not in discord:
-
         await update.message.reply_text(
             "❌ Link Discord non valido.\n\n"
             "Manda un link tipo:\n"
@@ -387,7 +357,6 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ASK_DISCORD
 
     candidate = context.user_data["candidate"]
-
     candidate["discord"] = discord
 
     submission_id = (
@@ -416,7 +385,6 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "✅ Approva",
                 callback_data=f"approve_{submission_id}"
             ),
-
             InlineKeyboardButton(
                 "❌ Rifiuta",
                 callback_data=f"reject_{submission_id}"
@@ -437,7 +405,6 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     context.user_data.clear()
 
     await update.message.reply_text(
@@ -454,29 +421,23 @@ candidate_handler = ConversationHandler(
         CallbackQueryHandler(button, pattern="^candidate$"),
         CommandHandler("start", start)
     ],
-
     states={
         ASK_NAME: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)
         ],
-
         ASK_WL: [
             CallbackQueryHandler(ask_wl_button, pattern="^wl_")
         ],
-
         ASK_DESC: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, ask_desc)
         ],
-
         ASK_FEATURES: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, ask_features)
         ],
-
         ASK_DISCORD: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, ask_discord)
         ],
     },
-
     fallbacks=[
         CommandHandler("cancel", cancel)
     ],
