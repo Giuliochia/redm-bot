@@ -14,9 +14,14 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "391476319"))
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0"))
 PROMO_THREAD_ID = int(os.getenv("PROMO_THREAD_ID", "0"))
 
+PLAYER_THREAD_ID = 62
+STAFF_THREAD_ID = 63
+DEV_THREAD_ID = 64
+
 BOT_USERNAME = "redmhub_ita_bot"
 
 ASK_NAME, ASK_WL, ASK_DESC, ASK_FEATURES, ASK_DISCORD = range(5)
+LOOK_TYPE, LOOK_SERVER, LOOK_ROLE, LOOK_DESC, LOOK_DISCORD = range(5, 10)
 
 FEATURED_FILE = "featured_servers.json"
 
@@ -149,6 +154,7 @@ def get_all_servers():
 def home_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⭐ Server consigliati", callback_data="server_list")],
+        [InlineKeyboardButton("👥 Cerca Player/Fazione", callback_data="looking_menu")],
         [InlineKeyboardButton("🤝 Partnership", callback_data="partnership")],
         [InlineKeyboardButton("📨 Candidatura server", callback_data="candidate")],
         [InlineKeyboardButton("📢 Pubblicizza server", callback_data="promo")],
@@ -206,6 +212,43 @@ def format_public_server_post(server):
 
 🔗 Discord:
 {server['discord']}
+
+🤠 RedM Hub Italia
+"""
+
+
+def format_looking_post(data):
+    tipo = data["tipo"]
+
+    titles = {
+        "player": "👤 CERCO PLAYER",
+        "fazione": "🤠 CERCO FAZIONE",
+        "staff": "🛡 CERCO STAFF",
+        "developer": "💻 CERCO DEVELOPER"
+    }
+
+    labels = {
+        "player": "🔎 Cerchiamo",
+        "fazione": "🔎 Cerco",
+        "staff": "🎭 Ruolo",
+        "developer": "💻 Figura"
+    }
+
+    return f"""━━━━━━━━━━━━━━
+{titles[tipo]}
+━━━━━━━━━━━━━━
+
+🏜 Server:
+{data['server']}
+
+{labels[tipo]}:
+{data['ruolo']}
+
+📜 Descrizione:
+{data['descrizione']}
+
+🔗 Discord:
+{data['discord']}
 
 🤠 RedM Hub Italia
 """
@@ -420,6 +463,32 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 disable_web_page_preview=False
             )
+
+    elif query.data == "looking_menu":
+        keyboard = [
+            [InlineKeyboardButton("👤 Cerco Player", callback_data="look_player")],
+            [InlineKeyboardButton("🤠 Cerco Fazione", callback_data="look_fazione")],
+            [InlineKeyboardButton("🛡 Cerco Staff", callback_data="look_staff")],
+            [InlineKeyboardButton("💻 Cerco Developer", callback_data="look_developer")],
+            [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
+        ]
+
+        await query.edit_message_text(
+            "👥 Ricerca Player / Fazioni / Staff\n\n"
+            "Scegli cosa vuoi pubblicare nella community:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data.startswith("look_"):
+        tipo = query.data.replace("look_", "")
+        context.user_data.clear()
+        context.user_data["looking"] = {"tipo": tipo}
+
+        await query.message.reply_text(
+            "🏜 Scrivi il nome del server:"
+        )
+
+        return LOOK_SERVER
 
     elif query.data == "partnership":
         keyboard = [
@@ -641,6 +710,88 @@ Contatta un admin della community.
         del pending_servers[submission_id]
 
 
+async def look_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["looking"]["server"] = update.message.text.strip()
+
+    tipo = context.user_data["looking"]["tipo"]
+
+    if tipo == "player":
+        question = "👤 Che tipo di player cerchi?"
+    elif tipo == "fazione":
+        question = "🤠 Che fazione stai cercando?"
+    elif tipo == "staff":
+        question = "🛡 Che ruolo staff cerchi?"
+    else:
+        question = "💻 Che tipo di developer cerchi?"
+
+    await update.message.reply_text(question)
+
+    return LOOK_ROLE
+
+
+async def look_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["looking"]["ruolo"] = update.message.text.strip()
+
+    await update.message.reply_text(
+        "📜 Scrivi una breve descrizione / requisiti:"
+    )
+
+    return LOOK_DESC
+
+
+async def look_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["looking"]["descrizione"] = update.message.text.strip()
+
+    await update.message.reply_text(
+        "🔗 Ora manda il link Discord di contatto:"
+    )
+
+    return LOOK_DISCORD
+
+
+async def look_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    discord = update.message.text.strip()
+
+    if "discord.gg" not in discord and "discord.com" not in discord:
+        await update.message.reply_text(
+            "❌ Link Discord non valido.\n\n"
+            "Manda un link tipo:\n"
+            "https://discord.gg/xxxxx"
+        )
+
+        return LOOK_DISCORD
+
+    context.user_data["looking"]["discord"] = discord
+    data = context.user_data["looking"]
+
+    text = format_looking_post(data)
+
+    thread_id = PLAYER_THREAD_ID
+
+    if data["tipo"] == "staff":
+        thread_id = STAFF_THREAD_ID
+    elif data["tipo"] == "developer":
+        thread_id = DEV_THREAD_ID
+    elif data["tipo"] in ["player", "fazione"]:
+        thread_id = PLAYER_THREAD_ID
+
+    if GROUP_CHAT_ID:
+        await context.bot.send_message(
+            chat_id=GROUP_CHAT_ID,
+            message_thread_id=thread_id,
+            text=text,
+            disable_web_page_preview=False
+        )
+
+    await update.message.reply_text(
+        "✅ Annuncio pubblicato nella community!"
+    )
+
+    context.user_data.clear()
+
+    return ConversationHandler.END
+
+
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["candidate"] = {
         "nome": update.message.text.strip()
@@ -761,7 +912,7 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
-    await update.message.reply_text("❌ Candidatura annullata.")
+    await update.message.reply_text("❌ Operazione annullata.")
 
     return ConversationHandler.END
 
@@ -785,9 +936,25 @@ candidate_handler = ConversationHandler(
     ],
 )
 
+looking_handler = ConversationHandler(
+    entry_points=[
+        CallbackQueryHandler(button, pattern="^look_")
+    ],
+    states={
+        LOOK_SERVER: [MessageHandler(filters.TEXT & ~filters.COMMAND, look_server)],
+        LOOK_ROLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, look_role)],
+        LOOK_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, look_desc)],
+        LOOK_DISCORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, look_discord)],
+    },
+    fallbacks=[
+        CommandHandler("cancel", cancel)
+    ],
+)
+
 app.add_handler(CommandHandler("test", test))
 app.add_handler(CommandHandler("promo_message", promo_message))
 app.add_handler(candidate_handler)
+app.add_handler(looking_handler)
 app.add_handler(CallbackQueryHandler(button))
 app.add_handler(MessageHandler(filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND, moderate_message))
 
