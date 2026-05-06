@@ -35,7 +35,8 @@ servers = {
         "descrizione": "Server RedM italiano whitelist.",
         "feature": ["Roleplay immersivo", "Community italiana", "Sistema whitelist"],
         "discord": "https://discord.gg/wildlandsita",
-        "image": "wildlands.jpg"
+        "image": "wildlands.jpg",
+        "badge": "⭐ SERVER CONSIGLIATO"
     },
     "streets": {
         "nome": "Streets of Saints",
@@ -43,7 +44,8 @@ servers = {
         "descrizione": "Server RedM italiano.",
         "feature": ["Roleplay", "Community attiva", "Esperienza immersiva"],
         "discord": "https://discord.gg/streetsofsaints",
-        "image": "streets.png"
+        "image": "streets.png",
+        "badge": "⭐ SERVER CONSIGLIATO"
     },
     "madwest": {
         "nome": "Mad West",
@@ -51,7 +53,8 @@ servers = {
         "descrizione": "Server RedM italiano whitelist.",
         "feature": ["Roleplay Far West", "Whitelist attiva", "Community italiana"],
         "discord": "https://discord.gg/E3gYt2EuTH",
-        "image": "madwest.png"
+        "image": "madwest.png",
+        "badge": "⭐ SERVER CONSIGLIATO"
     },
     "newhope": {
         "nome": "1886 New Hope",
@@ -59,7 +62,33 @@ servers = {
         "descrizione": "Server RedM italiano whitelist.",
         "feature": ["Ambientazione 1886", "Roleplay realistico", "Community attiva"],
         "discord": "https://discord.gg/ZdYQk7NCNV",
-        "image": "newhope.png"
+        "image": "newhope.png",
+        "badge": "⭐ SERVER CONSIGLIATO"
+    }
+}
+
+partners = {
+    "server_partner": {
+        "titolo": "🌟 Server Partner",
+        "descrizione": "Server RedM selezionati come partner ufficiali della community.",
+        "items": [
+            "Wildlands Italia",
+            "1886 New Hope"
+        ]
+    },
+    "creator_partner": {
+        "titolo": "🎥 Creator Partner",
+        "descrizione": "Creator e streamer che supportano la community RedM italiana.",
+        "items": [
+            "Disponibile prossimamente"
+        ]
+    },
+    "sponsor_partner": {
+        "titolo": "📢 Sponsor",
+        "descrizione": "Spazi dedicati a sponsor, collaborazioni e progetti in evidenza.",
+        "items": [
+            "Slot sponsor disponibile"
+        ]
     }
 }
 
@@ -67,6 +96,7 @@ servers = {
 def home_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⭐ Server consigliati", callback_data="server_list")],
+        [InlineKeyboardButton("🤝 Partnership", callback_data="partnership")],
         [InlineKeyboardButton("📨 Candidatura server", callback_data="candidate")],
         [InlineKeyboardButton("📢 Pubblicizza server", callback_data="promo")],
         [InlineKeyboardButton("📜 Regole", callback_data="regole")],
@@ -74,20 +104,57 @@ def home_keyboard():
     ])
 
 
-def format_public_server_post(server):
-    features = "\n".join([f"- {f}" for f in server["feature"]])
+def format_premium_card(server):
+    features = "\n".join([f"• {f}" for f in server["feature"]])
 
-    return f"""🏜 {server['nome']}
+    return f"""━━━━━━━━━━━━━━
+{server.get('badge', '🏜 SERVER REDM')}
+━━━━━━━━━━━━━━
+
+🏜 {server['nome']}
 
 🎭 Tipo: Roleplay
 🌍 Lingua: Italiano
 🔐 Whitelist: {server['whitelist']}
 
-⚙️ Feature:
+📜 Descrizione:
+{server['descrizione']}
+
+⚙️ Features:
 {features}
+
+━━━━━━━━━━━━━━
 
 🔗 Discord:
 {server['discord']}
+
+🤠 RedM Hub Italia
+"""
+
+
+def format_public_server_post(server):
+    features = "\n".join([f"• {f}" for f in server["feature"]])
+
+    return f"""━━━━━━━━━━━━━━
+🏜 {server['nome']}
+━━━━━━━━━━━━━━
+
+🎭 Tipo: Roleplay
+🌍 Lingua: Italiano
+🔐 Whitelist: {server['whitelist']}
+
+📜 Descrizione:
+{server['descrizione']}
+
+⚙️ Features:
+{features}
+
+━━━━━━━━━━━━━━
+
+🔗 Discord:
+{server['discord']}
+
+🤠 RedM Hub Italia
 """
 
 
@@ -103,8 +170,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ASK_NAME
 
     await update.message.reply_text(
-        "🤠 Benvenuto su RedM Server Hub Italia\n\n"
-        "Trova, pubblicizza o candida un server RedM italiano.",
+        "🤠 RedM Hub Italia\n\n"
+        "La community italiana dedicata ai server RedM.\n\n"
+        "Scegli una sezione:",
         reply_markup=home_keyboard()
     )
 
@@ -128,10 +196,14 @@ async def promo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📨 Promuovi il tuo server", url=link)]
     ])
 
-    await update.message.reply_text(
-        "📨 Vuoi pubblicizzare il tuo server RedM?\n\n"
-        "Premi il bottone qui sotto per inviare la candidatura.\n\n"
-        "Un admin controllerà la richiesta e, se approvata, verrà pubblicata nella community.",
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        message_thread_id=update.effective_message.message_thread_id,
+        text=(
+            "📨 Vuoi pubblicizzare il tuo server RedM?\n\n"
+            "Premi il bottone qui sotto per inviare la candidatura.\n\n"
+            "Un admin controllerà la richiesta e, se approvata, verrà pubblicata nella community."
+        ),
         reply_markup=keyboard
     )
 
@@ -142,7 +214,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data == "home":
         await query.edit_message_text(
-            "🤠 RedM Server Hub Italia\n\nScegli cosa vuoi fare:",
+            "🤠 RedM Hub Italia\n\nScegli una sezione:",
             reply_markup=home_keyboard()
         )
 
@@ -156,27 +228,13 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
 
         await query.edit_message_text(
-            "⭐ Server consigliati:\n\nSeleziona un server:",
+            "⭐ Server consigliati\n\nSeleziona un server:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     elif query.data in servers:
         server = servers[query.data]
-        features = "\n".join([f"- {f}" for f in server["feature"]])
-
-        caption = f"""🏜 {server['nome']}
-
-🔐 Whitelist: {server['whitelist']}
-
-📜 Descrizione:
-{server['descrizione']}
-
-⚙️ Feature:
-{features}
-
-🔗 Discord:
-{server['discord']}
-"""
+        caption = format_premium_card(server)
 
         keyboard = [
             [InlineKeyboardButton("🔗 Entra nel Discord", url=server["discord"])],
@@ -187,6 +245,46 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             photo=open(server["image"], "rb"),
             caption=caption,
             reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "partnership":
+        keyboard = [
+            [InlineKeyboardButton("🌟 Server Partner", callback_data="server_partner")],
+            [InlineKeyboardButton("🎥 Creator Partner", callback_data="creator_partner")],
+            [InlineKeyboardButton("📢 Sponsor", callback_data="sponsor_partner")],
+            [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
+        ]
+
+        await query.edit_message_text(
+            "🤝 Partnership\n\n"
+            "Scopri i partner ufficiali della community RedM Hub Italia.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data in partners:
+        partner = partners[query.data]
+        items = "\n".join([f"• {item}" for item in partner["items"]])
+
+        text = f"""━━━━━━━━━━━━━━
+{partner['titolo']}
+━━━━━━━━━━━━━━
+
+{partner['descrizione']}
+
+📌 Lista:
+{items}
+
+━━━━━━━━━━━━━━
+
+🤝 Vuoi diventare partner?
+Contatta un admin della community.
+"""
+
+        await query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Torna alle partnership", callback_data="partnership")]
+            ])
         )
 
     elif query.data == "candidate":
@@ -215,10 +313,11 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "regole":
         await query.edit_message_text(
             "📜 REGOLE\n\n"
-            "- Niente spam\n"
-            "- Usa i topic corretti\n"
-            "- Rispetta gli altri\n"
-            "- Max 1 promo ogni 48 ore",
+            "• Niente spam\n"
+            "• Usa i topic corretti\n"
+            "• Rispetta gli altri\n"
+            "• Max 1 promo ogni 48 ore\n"
+            "• Le candidature vengono approvate manualmente",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
             ])
@@ -381,14 +480,8 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [
-            InlineKeyboardButton(
-                "✅ Approva",
-                callback_data=f"approve_{submission_id}"
-            ),
-            InlineKeyboardButton(
-                "❌ Rifiuta",
-                callback_data=f"reject_{submission_id}"
-            )
+            InlineKeyboardButton("✅ Approva", callback_data=f"approve_{submission_id}"),
+            InlineKeyboardButton("❌ Rifiuta", callback_data=f"reject_{submission_id}")
         ]
     ]
 
