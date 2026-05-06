@@ -70,16 +70,21 @@ servers = {
         "discord": "https://discord.gg/ZdYQk7NCNV",
         "image": "newhope.png",
         "badge": "⭐ SERVER CONSIGLIATO"
+    },
+    "westworld": {
+        "nome": "West World 2.0",
+        "whitelist": "Sì",
+        "descrizione": "Server RedM italiano whitelist.",
+        "feature": [
+            "Roleplay immersivo",
+            "Community italiana",
+            "Sistema whitelist",
+            "Eventi e interazioni tra player"
+        ],
+        "discord": "https://discord.gg/8PTeBBzvk",
+        "image": None,
+        "badge": "⭐ SERVER CONSIGLIATO"
     }
-   "westworld": {
-    "nome": "West World 2.0",
-    "whitelist": "Sì",
-    "descrizione": "Server RedM italiano whitelist.",
-    "feature": ["Roleplay immersivo", "Community italiana", "Sistema whitelist", "Eventi e interazioni tra player"],
-    "discord": "https://discord.gg/8PTeBBzvk",
-    "image": None,
-    "badge": "⭐ SERVER CONSIGLIATO"
-}
 }
 
 partners = {
@@ -377,7 +382,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "server_list":
         all_servers = get_all_servers()
-
         keyboard = []
 
         for key, server in all_servers.items():
