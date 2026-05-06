@@ -16,6 +16,8 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "391476319"))
 GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
 PROMO_THREAD_ID = os.getenv("PROMO_THREAD_ID")
 
+BOT_USERNAME = "redmhub_ita_bot"
+
 if GROUP_CHAT_ID:
     GROUP_CHAT_ID = int(GROUP_CHAT_ID)
 
@@ -90,6 +92,15 @@ def format_public_server_post(server):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.args and context.args[0] == "candidatura":
+        context.user_data.clear()
+        await update.message.reply_text(
+            "📨 Candidatura server\n\n"
+            "Iniziamo.\n\n"
+            "Scrivi il nome del server:"
+        )
+        return ASK_NAME
+
     await update.message.reply_text(
         "🤠 Benvenuto su RedM Server Hub Italia\n\n"
         "Trova, pubblicizza o candida un server RedM italiano.",
@@ -103,6 +114,25 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"CHAT ID:\n{chat.id}\n\nTHREAD ID:\n{message.message_thread_id}"
+    )
+
+
+async def promo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ Solo l'admin può usare questo comando.")
+        return
+
+    link = f"https://t.me/{BOT_USERNAME}?start=candidatura"
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📨 Promuovi il tuo server", url=link)]
+    ])
+
+    await update.message.reply_text(
+        "📨 Vuoi pubblicizzare il tuo server RedM?\n\n"
+        "Premi il bottone qui sotto per inviare la candidatura.\n"
+        "Un admin controllerà la richiesta e, se approvata, verrà pubblicata nella community.",
+        reply_markup=keyboard
     )
 
 
@@ -168,16 +198,17 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ASK_NAME
 
     elif query.data == "promo":
+        link = f"https://t.me/{BOT_USERNAME}?start=candidatura"
+
         keyboard = [
+            [InlineKeyboardButton("📨 Promuovi il tuo server", url=link)],
             [InlineKeyboardButton("📢 Vai al gruppo", url="https://t.me/redmitacommunity")],
             [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
         ]
 
         await query.edit_message_text(
             "📢 Vuoi pubblicizzare il tuo server?\n\n"
-            "Entra nella community e usa il topic:\n\n"
-            "📢 PROMO SERVER\n\n"
-            "Segui il formato fissato 👍",
+            "Premi il bottone qui sotto e completa la candidatura nel bot.",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
@@ -386,7 +417,8 @@ app = ApplicationBuilder().token(TOKEN).build()
 
 candidate_handler = ConversationHandler(
     entry_points=[
-        CallbackQueryHandler(button, pattern="^candidate$")
+        CallbackQueryHandler(button, pattern="^candidate$"),
+        CommandHandler("start", start)
     ],
     states={
         ASK_NAME: [
@@ -410,8 +442,8 @@ candidate_handler = ConversationHandler(
     ],
 )
 
-app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("test", test))
+app.add_handler(CommandHandler("promo_message", promo_message))
 app.add_handler(candidate_handler)
 app.add_handler(CallbackQueryHandler(button))
 
