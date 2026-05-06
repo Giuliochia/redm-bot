@@ -1,8 +1,30 @@
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ConversationHandler,
+    ContextTypes,
+    filters
+)
 
 TOKEN = os.getenv("TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "391476319"))
+
+GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
+PROMO_THREAD_ID = os.getenv("PROMO_THREAD_ID")
+
+if GROUP_CHAT_ID:
+    GROUP_CHAT_ID = int(GROUP_CHAT_ID)
+
+if PROMO_THREAD_ID:
+    PROMO_THREAD_ID = int(PROMO_THREAD_ID)
+
+ASK_NAME, ASK_WL, ASK_DESC, ASK_FEATURES, ASK_DISCORD = range(5)
+
+pending_servers = {}
 
 servers = {
     "wildlands": {
@@ -39,23 +61,45 @@ servers = {
     }
 }
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
+
+def home_keyboard():
+    return InlineKeyboardMarkup([
         [InlineKeyboardButton("⭐ Server consigliati", callback_data="server_list")],
+        [InlineKeyboardButton("📨 Candidatura server", callback_data="candidate")],
         [InlineKeyboardButton("📢 Pubblicizza server", callback_data="promo")],
-        [InlineKeyboardButton("📜 Regole", callback_data="regole")]
-    ]
+        [InlineKeyboardButton("📜 Regole", callback_data="regole")],
+        [InlineKeyboardButton("🧰 Pannello admin", callback_data="admin_panel")]
+    ])
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🤠 Benvenuto su RedM Server Hub Italia\n\n"
+        "Trova, pubblicizza o candida un server RedM italiano.",
+        reply_markup=home_keyboard()
+    )
+
+
+async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    message = update.effective_message
 
     await update.message.reply_text(
-        "🤠 Benvenuto su RedM Server Hub Italia\n\nScegli cosa vuoi fare:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        f"CHAT ID:\n{chat.id}\n\nTHREAD ID:\n{message.message_thread_id}"
     )
+
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "server_list":
+    if query.data == "home":
+        await query.edit_message_text(
+            "🤠 RedM Server Hub Italia\n\nScegli cosa vuoi fare:",
+            reply_markup=home_keyboard()
+        )
+
+    elif query.data == "server_list":
         keyboard = [
             [InlineKeyboardButton("🏜 Wildlands Italia", callback_data="wildlands")],
             [InlineKeyboardButton("🏜 Streets of Saints", callback_data="streets")],
@@ -98,6 +142,14 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
+    elif query.data == "candidate":
+        await query.message.reply_text(
+            "📨 Candidatura server\n\n"
+            "Iniziamo.\n\n"
+            "Scrivi il nome del server:"
+        )
+        return ASK_NAME
+
     elif query.data == "promo":
         keyboard = [
             [InlineKeyboardButton("📢 Vai al gruppo", url="https://t.me/redmitacommunity")],
@@ -105,35 +157,262 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
 
         await query.edit_message_text(
-            "📢 Vuoi pubblicizzare il tuo server?\n\nEntra nella community e usa il topic:\n\n📢 PROMO SERVER\n\nSegui il formato fissato 👍",
+            "📢 Vuoi pubblicizzare il tuo server?\n\n"
+            "Entra nella community e usa il topic:\n\n"
+            "📢 PROMO SERVER\n\n"
+            "Segui il formato fissato 👍",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     elif query.data == "regole":
-        keyboard = [
-            [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
-        ]
+        keyboard = [[InlineKeyboardButton("⬅️ Indietro", callback_data="home")]]
 
         await query.edit_message_text(
-            "📜 REGOLE\n\n- Niente spam\n- Usa i topic corretti\n- Rispetta gli altri\n- Max 1 promo ogni 48 ore",
+            "📜 REGOLE\n\n"
+            "- Niente spam\n"
+            "- Usa i topic corretti\n"
+            "- Rispetta gli altri\n"
+            "- Max 1 promo ogni 48 ore",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    elif query.data == "home":
-        keyboard = [
-            [InlineKeyboardButton("⭐ Server consigliati", callback_data="server_list")],
-            [InlineKeyboardButton("📢 Pubblicizza server", callback_data="promo")],
-            [InlineKeyboardButton("📜 Regole", callback_data="regole")]
-        ]
+    elif query.data == "admin_panel":
+        if query.from_user.id != ADMIN_ID:
+            await query.edit_message_text("❌ Non hai accesso al pannello admin.")
+            return
 
         await query.edit_message_text(
-            "🤠 RedM Server Hub Italia\n\nScegli cosa vuoi fare:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            "🧰 Pannello Admin\n\n"
+            f"📨 Candidature in attesa: {len(pending_servers)}\n\n"
+            "Quando arriva una candidatura, potrai approvarla o rifiutarla direttamente dal bot.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
+            ])
         )
+
+    elif query.data.startswith("approve_"):
+        if query.from_user.id != ADMIN_ID:
+            await query.answer("Non autorizzato.", show_alert=True)
+            return
+
+        submission_id = query.data.replace("approve_", "")
+        server = pending_servers.get(submission_id)
+
+        if not server:
+            await query.edit_message_text("❌ Candidatura non trovata o già gestita.")
+            return
+
+        text = format_public_server_post(server)
+
+        if GROUP_CHAT_ID:
+            kwargs = {
+                "chat_id": GROUP_CHAT_ID,
+                "text": text,
+                "disable_web_page_preview": False
+            }
+
+            if PROMO_THREAD_ID:
+                kwargs["message_thread_id"] = PROMO_THREAD_ID
+
+            await context.bot.send_message(**kwargs)
+
+        await query.edit_message_text(
+            f"✅ Candidatura approvata:\n\n🏜 {server['nome']}\n\nPubblicata nel gruppo."
+        )
+
+        del pending_servers[submission_id]
+
+    elif query.data.startswith("reject_"):
+        if query.from_user.id != ADMIN_ID:
+            await query.answer("Non autorizzato.", show_alert=True)
+            return
+
+        submission_id = query.data.replace("reject_", "")
+        server = pending_servers.get(submission_id)
+
+        if not server:
+            await query.edit_message_text("❌ Candidatura non trovata o già gestita.")
+            return
+
+        await query.edit_message_text(
+            f"❌ Candidatura rifiutata:\n\n🏜 {server['nome']}"
+        )
+
+        del pending_servers[submission_id]
+
+
+def format_public_server_post(server):
+    features = "\n".join([f"- {f}" for f in server["feature"]])
+
+    return f"""📢 NUOVO SERVER CANDIDATO
+
+🏜 Nome: {server['nome']}
+🔐 Whitelist: {server['whitelist']}
+
+📜 Descrizione:
+{server['descrizione']}
+
+⚙️ Feature:
+{features}
+
+🔗 Discord:
+{server['discord']}
+"""
+
+
+async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["candidate"] = {
+        "nome": update.message.text.strip()
+    }
+
+    keyboard = [
+        [InlineKeyboardButton("Sì", callback_data="wl_si")],
+        [InlineKeyboardButton("No", callback_data="wl_no")]
+    ]
+
+    await update.message.reply_text(
+        "🔐 Il server è whitelist?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+    return ASK_WL
+
+
+async def ask_wl_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "wl_si":
+        context.user_data["candidate"]["whitelist"] = "Sì"
+    else:
+        context.user_data["candidate"]["whitelist"] = "No"
+
+    await query.edit_message_text(
+        "📜 Scrivi una breve descrizione del server:"
+    )
+
+    return ASK_DESC
+
+
+async def ask_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["candidate"]["descrizione"] = update.message.text.strip()
+
+    await update.message.reply_text(
+        "⚙️ Scrivi le feature principali.\n\n"
+        "Esempio:\n"
+        "Economia realistica, lavori, fazioni, eventi settimanali"
+    )
+
+    return ASK_FEATURES
+
+
+async def ask_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw_features = update.message.text.strip()
+
+    features = [
+        feature.strip()
+        for feature in raw_features.replace("\n", ",").split(",")
+        if feature.strip()
+    ]
+
+    context.user_data["candidate"]["feature"] = features
+
+    await update.message.reply_text(
+        "🔗 Ora manda il link Discord del server:"
+    )
+
+    return ASK_DISCORD
+
+
+async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    discord = update.message.text.strip()
+
+    if "discord.gg" not in discord and "discord.com" not in discord:
+        await update.message.reply_text(
+            "❌ Link Discord non valido.\n\nManda un link tipo:\nhttps://discord.gg/xxxxx"
+        )
+        return ASK_DISCORD
+
+    candidate = context.user_data["candidate"]
+    candidate["discord"] = discord
+
+    submission_id = str(update.effective_user.id) + "_" + str(update.message.message_id)
+    pending_servers[submission_id] = candidate
+
+    await update.message.reply_text(
+        "✅ Candidatura inviata!\n\n"
+        "Un admin la controllerà e deciderà se approvarla."
+    )
+
+    admin_text = f"""📨 NUOVA CANDIDATURA SERVER
+
+👤 Utente: @{update.effective_user.username or 'senza username'}
+🆔 ID: {update.effective_user.id}
+
+{format_public_server_post(candidate)}
+"""
+
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Approva", callback_data=f"approve_{submission_id}"),
+            InlineKeyboardButton("❌ Rifiuta", callback_data=f"reject_{submission_id}")
+        ]
+    ]
+
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=admin_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=False
+    )
+
+    context.user_data.clear()
+
+    return ConversationHandler.END
+
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+
+    await update.message.reply_text(
+        "❌ Candidatura annullata.",
+        reply_markup=home_keyboard()
+    )
+
+    return ConversationHandler.END
+
 
 app = ApplicationBuilder().token(TOKEN).build()
 
+candidate_handler = ConversationHandler(
+    entry_points=[
+        CallbackQueryHandler(button, pattern="^candidate$")
+    ],
+    states={
+        ASK_NAME: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)
+        ],
+        ASK_WL: [
+            CallbackQueryHandler(ask_wl_button, pattern="^wl_")
+        ],
+        ASK_DESC: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, ask_desc)
+        ],
+        ASK_FEATURES: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, ask_features)
+        ],
+        ASK_DISCORD: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, ask_discord)
+        ],
+    },
+    fallbacks=[
+        CommandHandler("cancel", cancel)
+    ],
+)
+
 app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("test", test))
+app.add_handler(candidate_handler)
 app.add_handler(CallbackQueryHandler(button))
 
 print("Bot avviato...")
