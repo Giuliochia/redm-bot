@@ -1,59 +1,35 @@
 import os
 import re
+import json
 from datetime import datetime, timedelta, timezone
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    ConversationHandler,
-    ContextTypes,
-    filters
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
+    MessageHandler, ConversationHandler, ContextTypes, filters
 )
 
 TOKEN = os.getenv("TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "391476319"))
-
-GROUP_CHAT_ID = os.getenv("GROUP_CHAT_ID")
-PROMO_THREAD_ID = os.getenv("PROMO_THREAD_ID")
-
+GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0"))
+PROMO_THREAD_ID = int(os.getenv("PROMO_THREAD_ID", "0"))
 BOT_USERNAME = "redmhub_ita_bot"
-
-if GROUP_CHAT_ID:
-    GROUP_CHAT_ID = int(GROUP_CHAT_ID)
-
-if PROMO_THREAD_ID:
-    PROMO_THREAD_ID = int(PROMO_THREAD_ID)
 
 ASK_NAME, ASK_WL, ASK_DESC, ASK_FEATURES, ASK_DISCORD = range(5)
 
+FEATURED_FILE = "featured_servers.json"
 pending_servers = {}
 user_warnings = {}
 
 BAD_WORDS = [
-    "mongolo",
-    "ritardato",
-    "handicappato",
-    "frocio",
-    "negro",
-    "zingaro",
-    "server di merda",
-    "server merda",
-    "fai schifo",
-    "killati",
-    "ammazzati"
+    "mongolo", "ritardato", "handicappato", "frocio", "negro",
+    "zingaro", "server di merda", "server merda", "fai schifo",
+    "killati", "ammazzati"
 ]
 
 ALLOWED_LINKS = [
-    "discord.gg",
-    "discord.com",
-    "youtube.com",
-    "youtu.be",
-    "tiktok.com",
-    "t.me",
-    "telegram.me"
+    "discord.gg", "discord.com", "youtube.com", "youtu.be",
+    "tiktok.com", "t.me", "telegram.me"
 ]
 
 servers = {
@@ -114,6 +90,46 @@ partners = {
 }
 
 
+def load_featured_servers():
+    if not os.path.exists(FEATURED_FILE):
+        return {}
+
+    try:
+        with open(FEATURED_FILE, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except Exception:
+        return {}
+
+
+def save_featured_servers(data):
+    with open(FEATURED_FILE, "w", encoding="utf-8") as file:
+        json.dump(data, file, ensure_ascii=False, indent=4)
+
+
+featured_servers = load_featured_servers()
+
+
+def make_featured_key(name):
+    base = re.sub(r"[^a-zA-Z0-9]+", "_", name.lower()).strip("_")
+    key = f"feat_{base}"
+
+    counter = 1
+    original = key
+
+    while key in servers or key in featured_servers:
+        counter += 1
+        key = f"{original}_{counter}"
+
+    return key
+
+
+def get_all_servers():
+    all_servers = {}
+    all_servers.update(servers)
+    all_servers.update(featured_servers)
+    return all_servers
+
+
 def home_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⭐ Server consigliati", callback_data="server_list")],
@@ -129,7 +145,7 @@ def format_premium_card(server):
     features = "\n".join([f"• {f}" for f in server["feature"]])
 
     return f"""━━━━━━━━━━━━━━
-{server.get('badge', '🏜 SERVER REDM')}
+{server.get('badge', '⭐ SERVER CONSIGLIATO')}
 ━━━━━━━━━━━━━━
 
 🏜 {server['nome']}
@@ -208,10 +224,9 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE, reason):
     user = update.effective_user
     chat_id = update.effective_chat.id
-
     key = f"{chat_id}_{user.id}"
-    user_warnings[key] = user_warnings.get(key, 0) + 1
 
+    user_warnings[key] = user_warnings.get(key, 0) + 1
     warns = user_warnings[key]
 
     try:
@@ -219,16 +234,14 @@ async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE, reason):
     except Exception:
         pass
 
-    warning_text = (
-        f"⚠️ Messaggio rimosso\n\n"
-        f"👤 Utente: {user.mention_html()}\n"
-        f"📌 Motivo: {reason}\n"
-        f"🚨 Warn: {warns}/3"
-    )
-
     await context.bot.send_message(
         chat_id=chat_id,
-        text=warning_text,
+        text=(
+            f"⚠️ Messaggio rimosso\n\n"
+            f"👤 Utente: {user.mention_html()}\n"
+            f"📌 Motivo: {reason}\n"
+            f"🚨 Warn: {warns}/3"
+        ),
         parse_mode="HTML"
     )
 
@@ -352,21 +365,25 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "server_list":
-        keyboard = [
-            [InlineKeyboardButton("🏜 Wildlands Italia", callback_data="wildlands")],
-            [InlineKeyboardButton("🏜 Streets of Saints", callback_data="streets")],
-            [InlineKeyboardButton("🏜 Mad West", callback_data="madwest")],
-            [InlineKeyboardButton("🏜 1886 New Hope", callback_data="newhope")],
-            [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
-        ]
+        all_servers = get_all_servers()
+
+        keyboard = []
+
+        for key, server in all_servers.items():
+            keyboard.append([
+                InlineKeyboardButton(f"🏜 {server['nome']}", callback_data=key)
+            ])
+
+        keyboard.append([InlineKeyboardButton("⬅️ Indietro", callback_data="home")])
 
         await query.edit_message_text(
             "⭐ Server consigliati\n\nSeleziona un server:",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    elif query.data in servers:
-        server = servers[query.data]
+    elif query.data in get_all_servers():
+        all_servers = get_all_servers()
+        server = all_servers[query.data]
         caption = format_premium_card(server)
 
         keyboard = [
@@ -374,11 +391,20 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("⬅️ Torna ai server", callback_data="server_list")]
         ]
 
-        await query.message.reply_photo(
-            photo=open(server["image"], "rb"),
-            caption=caption,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        image = server.get("image")
+
+        if image and os.path.exists(image):
+            await query.message.reply_photo(
+                photo=open(image, "rb"),
+                caption=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            await query.message.reply_text(
+                caption,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                disable_web_page_preview=False
+            )
 
     elif query.data == "partnership":
         keyboard = [
@@ -460,11 +486,47 @@ Contatta un admin della community.
         await query.edit_message_text(
             "🧰 Pannello Admin\n\n"
             f"📨 Candidature in attesa: {len(pending_servers)}\n"
+            f"⭐ Server consigliati aggiunti: {len(featured_servers)}\n"
             f"🚨 Sistema moderazione: attivo",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
             ])
         )
+
+    elif query.data.startswith("approve_featured_"):
+        submission_id = query.data.replace("approve_featured_", "")
+        server = pending_servers.get(submission_id)
+
+        if not server:
+            await query.edit_message_text("❌ Candidatura non trovata o già gestita.")
+            return
+
+        server["badge"] = "⭐ SERVER CONSIGLIATO"
+        server["image"] = None
+
+        featured_key = make_featured_key(server["nome"])
+        featured_servers[featured_key] = server
+        save_featured_servers(featured_servers)
+
+        text = format_public_server_post(server)
+
+        if GROUP_CHAT_ID:
+            kwargs = {
+                "chat_id": GROUP_CHAT_ID,
+                "text": text,
+                "disable_web_page_preview": False
+            }
+
+            if PROMO_THREAD_ID:
+                kwargs["message_thread_id"] = PROMO_THREAD_ID
+
+            await context.bot.send_message(**kwargs)
+
+        await query.edit_message_text(
+            f"⭐ Candidatura approvata e aggiunta ai consigliati\n\n🏜 {server['nome']}"
+        )
+
+        del pending_servers[submission_id]
 
     elif query.data.startswith("approve_"):
         submission_id = query.data.replace("approve_", "")
@@ -536,9 +598,7 @@ async def ask_wl_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         context.user_data["candidate"]["whitelist"] = "No"
 
-    await query.edit_message_text(
-        "📜 Scrivi una breve descrizione del server:"
-    )
+    await query.edit_message_text("📜 Scrivi una breve descrizione del server:")
 
     return ASK_DESC
 
@@ -566,9 +626,7 @@ async def ask_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["candidate"]["feature"] = features
 
-    await update.message.reply_text(
-        "🔗 Ora manda il link Discord del server:"
-    )
+    await update.message.reply_text("🔗 Ora manda il link Discord del server:")
 
     return ASK_DISCORD
 
@@ -611,6 +669,9 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
             InlineKeyboardButton("✅ Approva", callback_data=f"approve_{submission_id}"),
+            InlineKeyboardButton("⭐ Approva + Consigliati", callback_data=f"approve_featured_{submission_id}")
+        ],
+        [
             InlineKeyboardButton("❌ Rifiuta", callback_data=f"reject_{submission_id}")
         ]
     ]
