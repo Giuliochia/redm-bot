@@ -71,7 +71,7 @@ servers = {
         "image": "newhope.png",
         "badge": "⭐ SERVER CONSIGLIATO"
     }
-   "West World 2.0": {
+   "westworld": {
     "nome": "West World 2.0",
     "whitelist": "Sì",
     "descrizione": "Server RedM italiano whitelist.",
