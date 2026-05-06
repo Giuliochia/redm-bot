@@ -37,6 +37,7 @@ servers = {
         "discord": "https://discord.gg/wildlandsita",
         "image": "wildlands.jpg"
     },
+
     "streets": {
         "nome": "Streets of Saints",
         "whitelist": "Sì",
@@ -45,6 +46,7 @@ servers = {
         "discord": "https://discord.gg/streetsofsaints",
         "image": "streets.png"
     },
+
     "madwest": {
         "nome": "Mad West",
         "whitelist": "Sì",
@@ -53,6 +55,7 @@ servers = {
         "discord": "https://discord.gg/E3gYt2EuTH",
         "image": "madwest.png"
     },
+
     "newhope": {
         "nome": "1886 New Hope",
         "whitelist": "Sì",
@@ -75,6 +78,7 @@ def home_keyboard():
 
 
 def format_public_server_post(server):
+
     features = "\n".join([f"- {f}" for f in server["feature"]])
 
     return f"""🏜 {server['nome']}
@@ -92,13 +96,16 @@ def format_public_server_post(server):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     if context.args and context.args[0] == "candidatura":
+
         context.user_data.clear()
+
         await update.message.reply_text(
             "📨 Candidatura server\n\n"
-            "Iniziamo.\n\n"
             "Scrivi il nome del server:"
         )
+
         return ASK_NAME
 
     await update.message.reply_text(
@@ -109,6 +116,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     chat = update.effective_chat
     message = update.effective_message
 
@@ -118,8 +126,8 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def promo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ Solo l'admin può usare questo comando.")
+
+    if update.effective_chat.id != GROUP_CHAT_ID:
         return
 
     link = f"https://t.me/{BOT_USERNAME}?start=candidatura"
@@ -130,23 +138,26 @@ async def promo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "📨 Vuoi pubblicizzare il tuo server RedM?\n\n"
-        "Premi il bottone qui sotto per inviare la candidatura.\n"
+        "Premi il bottone qui sotto per inviare la candidatura.\n\n"
         "Un admin controllerà la richiesta e, se approvata, verrà pubblicata nella community.",
         reply_markup=keyboard
     )
 
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     query = update.callback_query
     await query.answer()
 
     if query.data == "home":
+
         await query.edit_message_text(
             "🤠 RedM Server Hub Italia\n\nScegli cosa vuoi fare:",
             reply_markup=home_keyboard()
         )
 
     elif query.data == "server_list":
+
         keyboard = [
             [InlineKeyboardButton("🏜 Wildlands Italia", callback_data="wildlands")],
             [InlineKeyboardButton("🏜 Streets of Saints", callback_data="streets")],
@@ -161,7 +172,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data in servers:
+
         server = servers[query.data]
+
         features = "\n".join([f"- {f}" for f in server["feature"]])
 
         caption = f"""🏜 {server['nome']}
@@ -190,14 +203,16 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "candidate":
+
         await query.message.reply_text(
             "📨 Candidatura server\n\n"
-            "Iniziamo.\n\n"
             "Scrivi il nome del server:"
         )
+
         return ASK_NAME
 
     elif query.data == "promo":
+
         link = f"https://t.me/{BOT_USERNAME}?start=candidatura"
 
         keyboard = [
@@ -213,6 +228,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "regole":
+
         await query.edit_message_text(
             "📜 REGOLE\n\n"
             "- Niente spam\n"
@@ -225,34 +241,32 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "admin_panel":
-        if query.from_user.id != ADMIN_ID:
-            await query.edit_message_text("❌ Non hai accesso al pannello admin.")
-            return
 
         await query.edit_message_text(
             "🧰 Pannello Admin\n\n"
-            f"📨 Candidature in attesa: {len(pending_servers)}\n\n"
-            "Quando arriva una candidatura, potrai approvarla o rifiutarla direttamente dal bot.",
+            f"📨 Candidature in attesa: {len(pending_servers)}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
             ])
         )
 
     elif query.data.startswith("approve_"):
-        if query.from_user.id != ADMIN_ID:
-            await query.answer("Non autorizzato.", show_alert=True)
-            return
 
         submission_id = query.data.replace("approve_", "")
         server = pending_servers.get(submission_id)
 
         if not server:
-            await query.edit_message_text("❌ Candidatura non trovata o già gestita.")
+
+            await query.edit_message_text(
+                "❌ Candidatura non trovata o già gestita."
+            )
+
             return
 
         text = format_public_server_post(server)
 
         if GROUP_CHAT_ID:
+
             kwargs = {
                 "chat_id": GROUP_CHAT_ID,
                 "text": text,
@@ -265,31 +279,33 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(**kwargs)
 
         await query.edit_message_text(
-            f"✅ Candidatura approvata:\n\n🏜 {server['nome']}\n\nPubblicata nel gruppo."
+            f"✅ Candidatura approvata\n\n🏜 {server['nome']}"
         )
 
         del pending_servers[submission_id]
 
     elif query.data.startswith("reject_"):
-        if query.from_user.id != ADMIN_ID:
-            await query.answer("Non autorizzato.", show_alert=True)
-            return
 
         submission_id = query.data.replace("reject_", "")
         server = pending_servers.get(submission_id)
 
         if not server:
-            await query.edit_message_text("❌ Candidatura non trovata o già gestita.")
+
+            await query.edit_message_text(
+                "❌ Candidatura non trovata o già gestita."
+            )
+
             return
 
         await query.edit_message_text(
-            f"❌ Candidatura rifiutata:\n\n🏜 {server['nome']}"
+            f"❌ Candidatura rifiutata\n\n🏜 {server['nome']}"
         )
 
         del pending_servers[submission_id]
 
 
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     context.user_data["candidate"] = {
         "nome": update.message.text.strip()
     }
@@ -308,6 +324,7 @@ async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_wl_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     query = update.callback_query
     await query.answer()
 
@@ -324,6 +341,7 @@ async def ask_wl_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     context.user_data["candidate"]["descrizione"] = update.message.text.strip()
 
     await update.message.reply_text(
@@ -336,6 +354,7 @@ async def ask_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     raw_features = update.message.text.strip()
 
     features = [
@@ -354,39 +373,54 @@ async def ask_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     discord = update.message.text.strip()
 
     if "discord.gg" not in discord and "discord.com" not in discord:
+
         await update.message.reply_text(
             "❌ Link Discord non valido.\n\n"
             "Manda un link tipo:\n"
             "https://discord.gg/xxxxx"
         )
+
         return ASK_DISCORD
 
     candidate = context.user_data["candidate"]
+
     candidate["discord"] = discord
 
-    submission_id = str(update.effective_user.id) + "_" + str(update.message.message_id)
+    submission_id = (
+        str(update.effective_user.id)
+        + "_"
+        + str(update.message.message_id)
+    )
+
     pending_servers[submission_id] = candidate
 
     await update.message.reply_text(
         "✅ Candidatura inviata!\n\n"
-        "Un admin la controllerà e deciderà se approvarla."
+        "Un admin controllerà la richiesta."
     )
 
     admin_text = f"""📨 NUOVA CANDIDATURA SERVER
 
 👤 Utente: @{update.effective_user.username or 'senza username'}
-🆔 ID: {update.effective_user.id}
 
 {format_public_server_post(candidate)}
 """
 
     keyboard = [
         [
-            InlineKeyboardButton("✅ Approva", callback_data=f"approve_{submission_id}"),
-            InlineKeyboardButton("❌ Rifiuta", callback_data=f"reject_{submission_id}")
+            InlineKeyboardButton(
+                "✅ Approva",
+                callback_data=f"approve_{submission_id}"
+            ),
+
+            InlineKeyboardButton(
+                "❌ Rifiuta",
+                callback_data=f"reject_{submission_id}"
+            )
         ]
     ]
 
@@ -403,11 +437,11 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     context.user_data.clear()
 
     await update.message.reply_text(
-        "❌ Candidatura annullata.",
-        reply_markup=home_keyboard()
+        "❌ Candidatura annullata."
     )
 
     return ConversationHandler.END
@@ -420,23 +454,29 @@ candidate_handler = ConversationHandler(
         CallbackQueryHandler(button, pattern="^candidate$"),
         CommandHandler("start", start)
     ],
+
     states={
         ASK_NAME: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)
         ],
+
         ASK_WL: [
             CallbackQueryHandler(ask_wl_button, pattern="^wl_")
         ],
+
         ASK_DESC: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, ask_desc)
         ],
+
         ASK_FEATURES: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, ask_features)
         ],
+
         ASK_DISCORD: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, ask_discord)
         ],
     },
+
     fallbacks=[
         CommandHandler("cancel", cancel)
     ],
