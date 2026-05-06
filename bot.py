@@ -72,6 +72,23 @@ def home_keyboard():
     ])
 
 
+def format_public_server_post(server):
+    features = "\n".join([f"- {f}" for f in server["feature"]])
+
+    return f"""🏜 {server['nome']}
+
+🎭 Tipo: Roleplay
+🌍 Lingua: Italiano
+🔐 Whitelist: {server['whitelist']}
+
+⚙️ Feature:
+{features}
+
+🔗 Discord:
+{server['discord']}
+"""
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤠 Benvenuto su RedM Server Hub Italia\n\n"
@@ -165,15 +182,15 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "regole":
-        keyboard = [[InlineKeyboardButton("⬅️ Indietro", callback_data="home")]]
-
         await query.edit_message_text(
             "📜 REGOLE\n\n"
             "- Niente spam\n"
             "- Usa i topic corretti\n"
             "- Rispetta gli altri\n"
             "- Max 1 promo ogni 48 ore",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
+            ])
         )
 
     elif query.data == "admin_panel":
@@ -239,25 +256,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         del pending_servers[submission_id]
-
-
-def format_public_server_post(server):
-    features = "\n".join([f"- {f}" for f in server["feature"]])
-
-    return f"""📢 NUOVO SERVER CANDIDATO
-
-🏜 Nome: {server['nome']}
-🔐 Whitelist: {server['whitelist']}
-
-📜 Descrizione:
-{server['descrizione']}
-
-⚙️ Feature:
-{features}
-
-🔗 Discord:
-{server['discord']}
-"""
 
 
 async def ask_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -329,7 +327,9 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if "discord.gg" not in discord and "discord.com" not in discord:
         await update.message.reply_text(
-            "❌ Link Discord non valido.\n\nManda un link tipo:\nhttps://discord.gg/xxxxx"
+            "❌ Link Discord non valido.\n\n"
+            "Manda un link tipo:\n"
+            "https://discord.gg/xxxxx"
         )
         return ASK_DISCORD
 
