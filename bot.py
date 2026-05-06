@@ -77,7 +77,7 @@ partners = {
     "server_partner": {
         "titolo": "🌟 Server Partner",
         "descrizione": "Server RedM selezionati come partner ufficiali della community.",
-        "items": ["Wildlands Italia", "1886 New Hope"]
+        "items": ["Disponibile prossimamente"]
     },
     "creator_partner": {
         "titolo": "🎥 Creator Partner",
