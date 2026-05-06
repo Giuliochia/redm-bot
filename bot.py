@@ -1,5 +1,8 @@
 import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import re
+from datetime import datetime, timedelta, timezone
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -27,6 +30,31 @@ if PROMO_THREAD_ID:
 ASK_NAME, ASK_WL, ASK_DESC, ASK_FEATURES, ASK_DISCORD = range(5)
 
 pending_servers = {}
+user_warnings = {}
+
+BAD_WORDS = [
+    "mongolo",
+    "ritardato",
+    "handicappato",
+    "frocio",
+    "negro",
+    "zingaro",
+    "server di merda",
+    "server merda",
+    "fai schifo",
+    "killati",
+    "ammazzati"
+]
+
+ALLOWED_LINKS = [
+    "discord.gg",
+    "discord.com",
+    "youtube.com",
+    "youtu.be",
+    "tiktok.com",
+    "t.me",
+    "telegram.me"
+]
 
 servers = {
     "wildlands": {
@@ -71,24 +99,17 @@ partners = {
     "server_partner": {
         "titolo": "🌟 Server Partner",
         "descrizione": "Server RedM selezionati come partner ufficiali della community.",
-        "items": [
-            "Wildlands Italia",
-            "1886 New Hope"
-        ]
+        "items": ["Wildlands Italia", "1886 New Hope"]
     },
     "creator_partner": {
         "titolo": "🎥 Creator Partner",
         "descrizione": "Creator e streamer che supportano la community RedM italiana.",
-        "items": [
-            "Disponibile prossimamente"
-        ]
+        "items": ["Disponibile prossimamente"]
     },
     "sponsor_partner": {
         "titolo": "📢 Sponsor",
         "descrizione": "Spazi dedicati a sponsor, collaborazioni e progetti in evidenza.",
-        "items": [
-            "Slot sponsor disponibile"
-        ]
+        "items": ["Slot sponsor disponibile"]
     }
 }
 
@@ -156,6 +177,118 @@ def format_public_server_post(server):
 
 🤠 RedM Hub Italia
 """
+
+
+def contains_bad_word(text):
+    lower_text = text.lower()
+    return any(word in lower_text for word in BAD_WORDS)
+
+
+def contains_bad_link(text):
+    links = re.findall(r"(https?://\S+|www\.\S+)", text.lower())
+
+    for link in links:
+        if not any(allowed in link for allowed in ALLOWED_LINKS):
+            return True
+
+    return False
+
+
+async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        member = await context.bot.get_chat_member(
+            update.effective_chat.id,
+            update.effective_user.id
+        )
+        return member.status in ["administrator", "creator"]
+    except Exception:
+        return False
+
+
+async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE, reason):
+    user = update.effective_user
+    chat_id = update.effective_chat.id
+
+    key = f"{chat_id}_{user.id}"
+    user_warnings[key] = user_warnings.get(key, 0) + 1
+
+    warns = user_warnings[key]
+
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
+    warning_text = (
+        f"⚠️ Messaggio rimosso\n\n"
+        f"👤 Utente: {user.mention_html()}\n"
+        f"📌 Motivo: {reason}\n"
+        f"🚨 Warn: {warns}/3"
+    )
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=warning_text,
+        parse_mode="HTML"
+    )
+
+    await context.bot.send_message(
+        chat_id=ADMIN_ID,
+        text=(
+            f"🚨 Moderazione\n\n"
+            f"Gruppo: {update.effective_chat.title}\n"
+            f"Utente: @{user.username or 'senza username'}\n"
+            f"ID: {user.id}\n"
+            f"Motivo: {reason}\n"
+            f"Warn: {warns}/3"
+        )
+    )
+
+    if warns >= 3:
+        until_date = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=chat_id,
+                user_id=user.id,
+                permissions=ChatPermissions(can_send_messages=False),
+                until_date=until_date
+            )
+
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"🔇 {user.mention_html()} è stato mutato per 10 minuti.",
+                parse_mode="HTML"
+            )
+
+            user_warnings[key] = 0
+
+        except Exception:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text="⚠️ Non sono riuscito a mutare l’utente. Controlla i permessi admin del bot."
+            )
+
+
+async def moderate_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+
+    if update.effective_chat.id != GROUP_CHAT_ID:
+        return
+
+    if await is_admin(update, context):
+        return
+
+    text = update.message.text
+
+    if contains_bad_word(text):
+        await warn_user(update, context, "linguaggio offensivo / flame")
+        return
+
+    if contains_bad_link(text):
+        await warn_user(update, context, "link non consentito")
+        return
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -326,7 +459,8 @@ Contatta un admin della community.
     elif query.data == "admin_panel":
         await query.edit_message_text(
             "🧰 Pannello Admin\n\n"
-            f"📨 Candidature in attesa: {len(pending_servers)}",
+            f"📨 Candidature in attesa: {len(pending_servers)}\n"
+            f"🚨 Sistema moderazione: attivo",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
             ])
@@ -337,9 +471,7 @@ Contatta un admin della community.
         server = pending_servers.get(submission_id)
 
         if not server:
-            await query.edit_message_text(
-                "❌ Candidatura non trovata o già gestita."
-            )
+            await query.edit_message_text("❌ Candidatura non trovata o già gestita.")
             return
 
         text = format_public_server_post(server)
@@ -367,9 +499,7 @@ Contatta un admin della community.
         server = pending_servers.get(submission_id)
 
         if not server:
-            await query.edit_message_text(
-                "❌ Candidatura non trovata o già gestita."
-            )
+            await query.edit_message_text("❌ Candidatura non trovata o già gestita.")
             return
 
         await query.edit_message_text(
@@ -500,9 +630,7 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
-    await update.message.reply_text(
-        "❌ Candidatura annullata."
-    )
+    await update.message.reply_text("❌ Candidatura annullata.")
 
     return ConversationHandler.END
 
@@ -515,21 +643,11 @@ candidate_handler = ConversationHandler(
         CommandHandler("start", start)
     ],
     states={
-        ASK_NAME: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)
-        ],
-        ASK_WL: [
-            CallbackQueryHandler(ask_wl_button, pattern="^wl_")
-        ],
-        ASK_DESC: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, ask_desc)
-        ],
-        ASK_FEATURES: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, ask_features)
-        ],
-        ASK_DISCORD: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, ask_discord)
-        ],
+        ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
+        ASK_WL: [CallbackQueryHandler(ask_wl_button, pattern="^wl_")],
+        ASK_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_desc)],
+        ASK_FEATURES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_features)],
+        ASK_DISCORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_discord)],
     },
     fallbacks=[
         CommandHandler("cancel", cancel)
@@ -540,6 +658,7 @@ app.add_handler(CommandHandler("test", test))
 app.add_handler(CommandHandler("promo_message", promo_message))
 app.add_handler(candidate_handler)
 app.add_handler(CallbackQueryHandler(button))
+app.add_handler(MessageHandler(filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND, moderate_message))
 
 print("Bot avviato...")
 app.run_polling()
