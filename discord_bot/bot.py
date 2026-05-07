@@ -478,11 +478,11 @@ async def setup_verifica_error(
 
 
 @bot.tree.command(
-    name="setup_ruoli",
+    name="ruoli",
     description="Invia il pannello selezione ruoli nel canale corrente"
 )
 @app_commands.checks.has_permissions(manage_guild=True)
-async def setup_ruoli(interaction: discord.Interaction):
+async def ruoli(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🎭 Scegli il tuo ruolo",
         description=(
@@ -520,8 +520,8 @@ async def setup_ruoli(interaction: discord.Interaction):
     )
 
 
-@setup_ruoli.error
-async def setup_ruoli_error(
+@ruoli.error
+async def ruoli_error(
     interaction: discord.Interaction,
     error
 ):
