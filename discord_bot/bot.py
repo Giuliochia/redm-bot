@@ -357,10 +357,15 @@ async def on_ready():
     )
 
     try:
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+
         synced = await bot.tree.sync(guild=GUILD_OBJECT)
+
         print(f"✅ Slash commands GUILD sincronizzati: {len(synced)}")
         for command in synced:
             print(f"   /{command.name}")
+
     except Exception as e:
         print(f"❌ Errore sync slash commands: {e}")
 
