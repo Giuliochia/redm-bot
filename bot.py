@@ -21,8 +21,8 @@ DEV_THREAD_ID = 64
 
 BOT_USERNAME = "redmhub_ita_bot"
 
-ASK_NAME, ASK_WL, ASK_DESC, ASK_FEATURES, ASK_DISCORD = range(5)
-LOOK_TYPE, LOOK_SERVER, LOOK_ROLE, LOOK_DESC, LOOK_DISCORD = range(5, 10)
+ASK_NAME, ASK_WL, ASK_DESC, ASK_FEATURES, ASK_DISCORD, ASK_BANNER = range(6)
+LOOK_TYPE, LOOK_SERVER, LOOK_ROLE, LOOK_DESC, LOOK_DISCORD = range(6, 11)
 
 FEATURED_FILE = "featured_servers.json"
 
@@ -49,6 +49,7 @@ servers = {
         "feature": ["Roleplay immersivo", "Community italiana", "Sistema whitelist"],
         "discord": "https://discord.gg/wildlandsita",
         "image": "wildlands.jpg",
+        "image_file_id": None,
         "badge": "⭐ SERVER CONSIGLIATO"
     },
     "streets": {
@@ -58,6 +59,7 @@ servers = {
         "feature": ["Roleplay", "Community attiva", "Esperienza immersiva"],
         "discord": "https://discord.gg/streetsofsaints",
         "image": "streets.png",
+        "image_file_id": None,
         "badge": "⭐ SERVER CONSIGLIATO"
     },
     "madwest": {
@@ -67,6 +69,7 @@ servers = {
         "feature": ["Roleplay Far West", "Whitelist attiva", "Community italiana"],
         "discord": "https://discord.gg/E3gYt2EuTH",
         "image": "madwest.png",
+        "image_file_id": None,
         "badge": "⭐ SERVER CONSIGLIATO"
     },
     "newhope": {
@@ -76,6 +79,7 @@ servers = {
         "feature": ["Ambientazione 1886", "Roleplay realistico", "Community attiva"],
         "discord": "https://discord.gg/ZdYQk7NCNV",
         "image": "newhope.png",
+        "image_file_id": None,
         "badge": "⭐ SERVER CONSIGLIATO"
     },
     "westworld": {
@@ -90,6 +94,7 @@ servers = {
         ],
         "discord": "https://discord.gg/8PTeBBzvk",
         "image": None,
+        "image_file_id": None,
         "badge": "⭐ SERVER CONSIGLIATO"
     }
 }
@@ -591,9 +596,16 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("⬅️ Torna ai server", callback_data="server_list")]
         ]
 
+        image_file_id = server.get("image_file_id")
         image = server.get("image")
 
-        if image and os.path.exists(image):
+        if image_file_id:
+            await query.message.reply_photo(
+                photo=image_file_id,
+                caption=caption,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        elif image and os.path.exists(image):
             await query.message.reply_photo(
                 photo=open(image, "rb"),
                 caption=caption,
@@ -789,19 +801,7 @@ Contatta un admin della community.
         featured_servers[featured_key] = server
         save_featured_servers(featured_servers)
 
-        text = format_public_server_post(server)
-
-        if GROUP_CHAT_ID:
-            kwargs = {
-                "chat_id": GROUP_CHAT_ID,
-                "text": text,
-                "disable_web_page_preview": False
-            }
-
-            if PROMO_THREAD_ID:
-                kwargs["message_thread_id"] = PROMO_THREAD_ID
-
-            await context.bot.send_message(**kwargs)
+        await publish_server(context, server)
 
         await query.edit_message_text(
             f"⭐ Candidatura approvata e aggiunta ai consigliati\n\n🏜 {server['nome']}"
@@ -817,19 +817,7 @@ Contatta un admin della community.
             await query.edit_message_text("❌ Candidatura non trovata o già gestita.")
             return
 
-        text = format_public_server_post(server)
-
-        if GROUP_CHAT_ID:
-            kwargs = {
-                "chat_id": GROUP_CHAT_ID,
-                "text": text,
-                "disable_web_page_preview": False
-            }
-
-            if PROMO_THREAD_ID:
-                kwargs["message_thread_id"] = PROMO_THREAD_ID
-
-            await context.bot.send_message(**kwargs)
+        await publish_server(context, server)
 
         await query.edit_message_text(
             f"✅ Candidatura approvata\n\n🏜 {server['nome']}"
@@ -850,6 +838,29 @@ Contatta un admin della community.
         )
 
         del pending_servers[submission_id]
+
+
+async def publish_server(context: ContextTypes.DEFAULT_TYPE, server):
+    text = format_public_server_post(server)
+
+    if not GROUP_CHAT_ID:
+        return
+
+    if server.get("image_file_id"):
+        await context.bot.send_photo(
+            chat_id=GROUP_CHAT_ID,
+            message_thread_id=PROMO_THREAD_ID if PROMO_THREAD_ID else None,
+            photo=server["image_file_id"],
+            caption=text,
+            reply_markup=None
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=GROUP_CHAT_ID,
+            message_thread_id=PROMO_THREAD_ID if PROMO_THREAD_ID else None,
+            text=text,
+            disable_web_page_preview=False
+        )
 
 
 async def look_server(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1006,8 +1017,49 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return ASK_DISCORD
 
+    context.user_data["candidate"]["discord"] = discord
+
+    await update.message.reply_text(
+        "🖼 Vuoi aggiungere un banner al server?\n\n"
+        "Formato richiesto:\n"
+        "1200x400 px\n\n"
+        "Invia l'immagine adesso oppure scrivi /skip per continuare senza banner."
+    )
+
+    return ASK_BANNER
+
+
+async def ask_banner(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message.photo:
+        await update.message.reply_text(
+            "❌ Devi inviare un'immagine oppure scrivere /skip."
+        )
+        return ASK_BANNER
+
+    photo = update.message.photo[-1]
+
+    if photo.width != 1200 or photo.height != 400:
+        await update.message.reply_text(
+            "❌ Banner non valido.\n\n"
+            "Formato richiesto:\n"
+            "1200x400 px\n\n"
+            "Invia un'altra immagine oppure scrivi /skip per continuare senza banner."
+        )
+        return ASK_BANNER
+
+    context.user_data["candidate"]["image_file_id"] = photo.file_id
+
+    return await finalize_candidate(update, context)
+
+
+async def skip_banner(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["candidate"]["image_file_id"] = None
+
+    return await finalize_candidate(update, context)
+
+
+async def finalize_candidate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     candidate = context.user_data["candidate"]
-    candidate["discord"] = discord
 
     submission_id = (
         str(update.effective_user.id)
@@ -1039,12 +1091,20 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
 
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=admin_text,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        disable_web_page_preview=False
-    )
+    if candidate.get("image_file_id"):
+        await context.bot.send_photo(
+            chat_id=ADMIN_ID,
+            photo=candidate["image_file_id"],
+            caption=admin_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=admin_text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            disable_web_page_preview=False
+        )
 
     context.user_data.clear()
 
@@ -1072,6 +1132,10 @@ candidate_handler = ConversationHandler(
         ASK_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_desc)],
         ASK_FEATURES: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_features)],
         ASK_DISCORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_discord)],
+        ASK_BANNER: [
+            MessageHandler(filters.PHOTO, ask_banner),
+            CommandHandler("skip", skip_banner)
+        ],
     },
     fallbacks=[
         CommandHandler("cancel", cancel)
