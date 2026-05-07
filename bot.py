@@ -3,6 +3,10 @@ import re
 import json
 from datetime import datetime, timedelta, timezone
 
+import psycopg
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
@@ -13,6 +17,7 @@ TOKEN = os.getenv("TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "391476319"))
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0"))
 PROMO_THREAD_ID = int(os.getenv("PROMO_THREAD_ID", "0"))
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 PLAYER_THREAD_ID = 62
 STAFF_THREAD_ID = 63
@@ -124,6 +129,64 @@ partners = {
 }
 
 
+def db_connect():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL non impostato nelle variabili Railway.")
+
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+
+def init_db():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS featured_servers (
+                    server_key TEXT PRIMARY KEY,
+                    data JSONB NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS pending_servers (
+                    submission_id TEXT PRIMARY KEY,
+                    data JSONB NOT NULL,
+                    submitted_by_id BIGINT,
+                    submitted_by_username TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS warnings (
+                    warning_key TEXT PRIMARY KEY,
+                    chat_id BIGINT NOT NULL,
+                    user_id BIGINT NOT NULL,
+                    warns INTEGER NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS admin_logs (
+                    id BIGSERIAL PRIMARY KEY,
+                    text TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS verified_users (
+                    user_id BIGINT PRIMARY KEY,
+                    username TEXT,
+                    chat_id BIGINT,
+                    verified_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+            """)
+
+        conn.commit()
+
+
 def load_json_file(path, default):
     if not os.path.exists(path):
         return default
@@ -135,29 +198,226 @@ def load_json_file(path, default):
         return default
 
 
-def save_json_file(path, data):
-    with open(path, "w", encoding="utf-8") as file:
-        json.dump(data, file, ensure_ascii=False, indent=4)
+def migrate_old_json_files():
+    old_featured = load_json_file(FEATURED_FILE, {})
+    old_pending = load_json_file(PENDING_FILE, {})
+    old_warnings = load_json_file(WARNINGS_FILE, {})
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            for server_key, data in old_featured.items():
+                cur.execute(
+                    """
+                    INSERT INTO featured_servers (server_key, data)
+                    VALUES (%s, %s)
+                    ON CONFLICT (server_key) DO NOTHING;
+                    """,
+                    (server_key, Jsonb(data))
+                )
+
+            for submission_id, data in old_pending.items():
+                cur.execute(
+                    """
+                    INSERT INTO pending_servers (
+                        submission_id,
+                        data,
+                        submitted_by_id,
+                        submitted_by_username
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (submission_id) DO NOTHING;
+                    """,
+                    (
+                        submission_id,
+                        Jsonb(data),
+                        data.get("submitted_by_id"),
+                        data.get("submitted_by_username")
+                    )
+                )
+
+            for warning_key, warns in old_warnings.items():
+                try:
+                    chat_id, user_id = warning_key.split("_", 1)
+                    cur.execute(
+                        """
+                        INSERT INTO warnings (warning_key, chat_id, user_id, warns)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (warning_key) DO NOTHING;
+                        """,
+                        (warning_key, int(chat_id), int(user_id), int(warns))
+                    )
+                except Exception:
+                    pass
+
+        conn.commit()
 
 
-featured_servers = load_json_file(FEATURED_FILE, {})
-user_warnings = load_json_file(WARNINGS_FILE, {})
-pending_servers = load_json_file(PENDING_FILE, {})
+def get_featured_servers():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT server_key, data FROM featured_servers ORDER BY created_at ASC;")
+            rows = cur.fetchall()
+
+    return {row["server_key"]: row["data"] for row in rows}
 
 
-def save_featured_servers():
-    save_json_file(FEATURED_FILE, featured_servers)
+def count_featured_servers():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS total FROM featured_servers;")
+            return cur.fetchone()["total"]
 
 
-def save_warnings():
-    save_json_file(WARNINGS_FILE, user_warnings)
+def save_featured_server(server_key, data):
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO featured_servers (server_key, data)
+                VALUES (%s, %s)
+                ON CONFLICT (server_key)
+                DO UPDATE SET data = EXCLUDED.data;
+                """,
+                (server_key, Jsonb(data))
+            )
+
+        conn.commit()
 
 
-def save_pending_servers():
-    save_json_file(PENDING_FILE, pending_servers)
+def delete_featured_server(server_key):
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM featured_servers WHERE server_key = %s;", (server_key,))
+        conn.commit()
+
+
+def get_pending_server(submission_id):
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT data FROM pending_servers WHERE submission_id = %s;",
+                (submission_id,)
+            )
+            row = cur.fetchone()
+
+    if not row:
+        return None
+
+    return row["data"]
+
+
+def save_pending_server(submission_id, data, user):
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO pending_servers (
+                    submission_id,
+                    data,
+                    submitted_by_id,
+                    submitted_by_username
+                )
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (submission_id)
+                DO UPDATE SET data = EXCLUDED.data;
+                """,
+                (
+                    submission_id,
+                    Jsonb(data),
+                    user.id,
+                    user.username or "senza username"
+                )
+            )
+
+        conn.commit()
+
+
+def delete_pending_server(submission_id):
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM pending_servers WHERE submission_id = %s;", (submission_id,))
+        conn.commit()
+
+
+def count_pending_servers():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS total FROM pending_servers;")
+            return cur.fetchone()["total"]
+
+
+def get_warning_count(chat_id, user_id):
+    warning_key = f"{chat_id}_{user_id}"
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT warns FROM warnings WHERE warning_key = %s;",
+                (warning_key,)
+            )
+            row = cur.fetchone()
+
+    if not row:
+        return 0
+
+    return row["warns"]
+
+
+def set_warning_count(chat_id, user_id, warns):
+    warning_key = f"{chat_id}_{user_id}"
+
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO warnings (warning_key, chat_id, user_id, warns, updated_at)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (warning_key)
+                DO UPDATE SET warns = EXCLUDED.warns, updated_at = NOW();
+                """,
+                (warning_key, chat_id, user_id, warns)
+            )
+
+        conn.commit()
+
+
+def count_warnings():
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS total FROM warnings WHERE warns > 0;")
+            return cur.fetchone()["total"]
+
+
+def save_admin_log_to_db(text):
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO admin_logs (text) VALUES (%s);",
+                (text,)
+            )
+
+        conn.commit()
+
+
+def save_verified_user(user_id, username, chat_id):
+    with db_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO verified_users (user_id, username, chat_id, verified_at)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (user_id)
+                DO UPDATE SET username = EXCLUDED.username, chat_id = EXCLUDED.chat_id, verified_at = NOW();
+                """,
+                (user_id, username, chat_id)
+            )
+
+        conn.commit()
 
 
 def make_featured_key(name):
+    featured_servers = get_featured_servers()
+
     base = re.sub(r"[^a-zA-Z0-9]+", "_", name.lower()).strip("_")
     key = f"feat_{base}"
 
@@ -174,7 +434,7 @@ def make_featured_key(name):
 def get_all_servers():
     all_servers = {}
     all_servers.update(servers)
-    all_servers.update(featured_servers)
+    all_servers.update(get_featured_servers())
     return all_servers
 
 
@@ -191,6 +451,11 @@ async def require_owner_callback(query):
 
 
 async def admin_log(context: ContextTypes.DEFAULT_TYPE, text):
+    try:
+        save_admin_log_to_db(text)
+    except Exception:
+        pass
+
     try:
         await context.bot.send_message(
             chat_id=ADMIN_ID,
@@ -489,6 +754,7 @@ async def verify_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     pending_verifications.pop(key, None)
+    save_verified_user(user_id, query.from_user.username or "senza username", chat_id)
 
     await query.edit_message_text(
         "✅ Verifica completata!\n\n"
@@ -517,12 +783,9 @@ async def verify_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE, reason):
     user = update.effective_user
     chat_id = update.effective_chat.id
-    key = f"{chat_id}_{user.id}"
 
-    user_warnings[key] = user_warnings.get(key, 0) + 1
-    save_warnings()
-
-    warns = user_warnings[key]
+    warns = get_warning_count(chat_id, user.id) + 1
+    set_warning_count(chat_id, user.id, warns)
 
     try:
         await update.message.delete()
@@ -567,8 +830,7 @@ async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE, reason):
                 parse_mode="HTML"
             )
 
-            user_warnings[key] = 0
-            save_warnings()
+            set_warning_count(chat_id, user.id, 0)
 
             await admin_log(
                 context,
@@ -828,9 +1090,9 @@ Contatta un admin della community.
 
         await query.edit_message_text(
             "🧰 Pannello Admin\n\n"
-            f"📨 Candidature in attesa: {len(pending_servers)}\n"
-            f"⭐ Server consigliati aggiunti: {len(featured_servers)}\n"
-            f"🚨 Warn salvati: {len(user_warnings)}\n"
+            f"📨 Candidature in attesa: {count_pending_servers()}\n"
+            f"⭐ Server consigliati aggiunti: {count_featured_servers()}\n"
+            f"🚨 Warn attivi: {count_warnings()}\n"
             f"🛡 Verifiche in corso: {len(pending_verifications)}",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -838,6 +1100,8 @@ Contatta un admin della community.
     elif query.data == "manage_featured":
         if not await require_owner_callback(query):
             return
+
+        featured_servers = get_featured_servers()
 
         if len(featured_servers) == 0:
             await query.edit_message_text(
@@ -871,6 +1135,7 @@ Contatta un admin della community.
             return
 
         featured_key = query.data.replace("remove_featured_", "")
+        featured_servers = get_featured_servers()
 
         if featured_key not in featured_servers:
             await query.edit_message_text(
@@ -883,8 +1148,7 @@ Contatta un admin della community.
 
         server_name = featured_servers[featured_key]["nome"]
 
-        del featured_servers[featured_key]
-        save_featured_servers()
+        delete_featured_server(featured_key)
 
         await query.edit_message_text(
             f"❌ Server rimosso dai consigliati\n\n🏜 {server_name}",
@@ -903,7 +1167,7 @@ Contatta un admin della community.
             return
 
         submission_id = query.data.replace("approve_featured_", "")
-        server = pending_servers.get(submission_id)
+        server = get_pending_server(submission_id)
 
         if not server:
             await query.edit_message_text("❌ Candidatura non trovata o già gestita.")
@@ -913,8 +1177,7 @@ Contatta un admin della community.
         server["image"] = None
 
         featured_key = make_featured_key(server["nome"])
-        featured_servers[featured_key] = server
-        save_featured_servers()
+        save_featured_server(featured_key, server)
 
         await publish_server(context, server)
 
@@ -922,8 +1185,7 @@ Contatta un admin della community.
             f"⭐ Candidatura approvata e aggiunta ai consigliati\n\n🏜 {server['nome']}"
         )
 
-        del pending_servers[submission_id]
-        save_pending_servers()
+        delete_pending_server(submission_id)
 
         await admin_log(
             context,
@@ -935,7 +1197,7 @@ Contatta un admin della community.
             return
 
         submission_id = query.data.replace("approve_", "")
-        server = pending_servers.get(submission_id)
+        server = get_pending_server(submission_id)
 
         if not server:
             await query.edit_message_text("❌ Candidatura non trovata o già gestita.")
@@ -947,8 +1209,7 @@ Contatta un admin della community.
             f"✅ Candidatura approvata\n\n🏜 {server['nome']}"
         )
 
-        del pending_servers[submission_id]
-        save_pending_servers()
+        delete_pending_server(submission_id)
 
         await admin_log(
             context,
@@ -960,7 +1221,7 @@ Contatta un admin della community.
             return
 
         submission_id = query.data.replace("reject_", "")
-        server = pending_servers.get(submission_id)
+        server = get_pending_server(submission_id)
 
         if not server:
             await query.edit_message_text("❌ Candidatura non trovata o già gestita.")
@@ -970,8 +1231,7 @@ Contatta un admin della community.
             f"❌ Candidatura rifiutata\n\n🏜 {server['nome']}"
         )
 
-        del pending_servers[submission_id]
-        save_pending_servers()
+        delete_pending_server(submission_id)
 
         await admin_log(
             context,
@@ -1273,8 +1533,7 @@ async def finalize_candidate(update: Update, context: ContextTypes.DEFAULT_TYPE)
     candidate["submitted_by_username"] = user.username or "senza username"
     candidate["submitted_at"] = datetime.now(timezone.utc).isoformat()
 
-    pending_servers[submission_id] = candidate
-    save_pending_servers()
+    save_pending_server(submission_id, candidate, user)
 
     await query.edit_message_text(
         "✅ Candidatura inviata!\n\n"
@@ -1333,6 +1592,9 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+init_db()
+migrate_old_json_files()
+
 app = ApplicationBuilder().token(TOKEN).build()
 
 candidate_handler = ConversationHandler(
@@ -1341,7 +1603,7 @@ candidate_handler = ConversationHandler(
         CommandHandler(
             "start",
             start_candidate,
-            filters=filters.Regex(r"^/start\s+candidatura(?:\s|$)")
+            filters=filters.Regex(r"^/start\\s+candidatura(?:\\s|$)")
         )
     ],
     states={
@@ -1391,5 +1653,5 @@ app.add_handler(CallbackQueryHandler(button))
 
 app.add_handler(MessageHandler(filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND, moderate_message))
 
-print("Bot avviato...")
+print("Bot avviato con PostgreSQL...")
 app.run_polling()
