@@ -158,16 +158,32 @@ def get_all_servers():
     return all_servers
 
 
-def home_keyboard():
-    return InlineKeyboardMarkup([
+def is_owner_user_id(user_id):
+    return user_id == ADMIN_ID
+
+
+async def require_owner_callback(query):
+    if not is_owner_user_id(query.from_user.id):
+        await query.answer("Accesso riservato agli admin.", show_alert=True)
+        return False
+
+    return True
+
+
+def home_keyboard(user_id=None):
+    keyboard = [
         [InlineKeyboardButton("⭐ Server consigliati", callback_data="server_list")],
         [InlineKeyboardButton("👥 Cerca Player/Fazione", callback_data="looking_menu")],
         [InlineKeyboardButton("🤝 Partnership", callback_data="partnership")],
         [InlineKeyboardButton("📨 Candidatura server", callback_data="candidate")],
         [InlineKeyboardButton("📢 Pubblicizza server", callback_data="promo")],
-        [InlineKeyboardButton("📜 Regole", callback_data="regole")],
-        [InlineKeyboardButton("🧰 Pannello admin", callback_data="admin_panel")]
-    ])
+        [InlineKeyboardButton("📜 Regole", callback_data="regole")]
+    ]
+
+    if user_id == ADMIN_ID:
+        keyboard.append([InlineKeyboardButton("🧰 Pannello admin", callback_data="admin_panel")])
+
+    return InlineKeyboardMarkup(keyboard)
 
 
 def full_permissions():
@@ -511,22 +527,23 @@ async def moderate_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.args and context.args[0] == "candidatura":
-        context.user_data.clear()
-
-        await update.message.reply_text(
-            "📨 Candidatura server\n\n"
-            "Scrivi il nome del server:"
-        )
-
-        return ASK_NAME
-
     await update.message.reply_text(
         "🤠 RedM Hub Italia\n\n"
         "La community italiana dedicata ai server RedM.\n\n"
         "Scegli una sezione:",
-        reply_markup=home_keyboard()
+        reply_markup=home_keyboard(update.effective_user.id)
     )
+
+
+async def start_candidate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+
+    await update.message.reply_text(
+        "📨 Candidatura server\n\n"
+        "Scrivi il nome del server:"
+    )
+
+    return ASK_NAME
 
 
 async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -567,7 +584,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "home":
         await query.edit_message_text(
             "🤠 RedM Hub Italia\n\nScegli una sezione:",
-            reply_markup=home_keyboard()
+            reply_markup=home_keyboard(query.from_user.id)
         )
 
     elif query.data == "server_list":
@@ -606,11 +623,12 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         elif image and os.path.exists(image):
-            await query.message.reply_photo(
-                photo=open(image, "rb"),
-                caption=caption,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            with open(image, "rb") as photo:
+                await query.message.reply_photo(
+                    photo=photo,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
         else:
             await query.message.reply_text(
                 caption,
@@ -685,6 +703,8 @@ Contatta un admin della community.
         )
 
     elif query.data == "candidate":
+        context.user_data.clear()
+
         await query.message.reply_text(
             "📨 Candidatura server\n\n"
             "Scrivi il nome del server:"
@@ -721,6 +741,9 @@ Contatta un admin della community.
         )
 
     elif query.data == "admin_panel":
+        if not await require_owner_callback(query):
+            return
+
         keyboard = [
             [InlineKeyboardButton("⭐ Gestisci consigliati", callback_data="manage_featured")],
             [InlineKeyboardButton("⬅️ Indietro", callback_data="home")]
@@ -735,6 +758,9 @@ Contatta un admin della community.
         )
 
     elif query.data == "manage_featured":
+        if not await require_owner_callback(query):
+            return
+
         if len(featured_servers) == 0:
             await query.edit_message_text(
                 "⭐ Nessun server consigliato aggiunto.",
@@ -763,6 +789,9 @@ Contatta un admin della community.
         )
 
     elif query.data.startswith("remove_featured_"):
+        if not await require_owner_callback(query):
+            return
+
         featured_key = query.data.replace("remove_featured_", "")
 
         if featured_key not in featured_servers:
@@ -787,6 +816,9 @@ Contatta un admin della community.
         )
 
     elif query.data.startswith("approve_featured_"):
+        if not await require_owner_callback(query):
+            return
+
         submission_id = query.data.replace("approve_featured_", "")
         server = pending_servers.get(submission_id)
 
@@ -810,6 +842,9 @@ Contatta un admin della community.
         del pending_servers[submission_id]
 
     elif query.data.startswith("approve_"):
+        if not await require_owner_callback(query):
+            return
+
         submission_id = query.data.replace("approve_", "")
         server = pending_servers.get(submission_id)
 
@@ -826,6 +861,9 @@ Contatta un admin della community.
         del pending_servers[submission_id]
 
     elif query.data.startswith("reject_"):
+        if not await require_owner_callback(query):
+            return
+
         submission_id = query.data.replace("reject_", "")
         server = pending_servers.get(submission_id)
 
@@ -1124,7 +1162,11 @@ app = ApplicationBuilder().token(TOKEN).build()
 candidate_handler = ConversationHandler(
     entry_points=[
         CallbackQueryHandler(button, pattern="^candidate$"),
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start_candidate,
+            filters=filters.Regex(r"^/start\s+candidatura(?:\s|$)")
+        )
     ],
     states={
         ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_name)],
@@ -1161,9 +1203,13 @@ app.add_handler(CommandHandler("test", test))
 app.add_handler(CommandHandler("promo_message", promo_message))
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
 app.add_handler(CallbackQueryHandler(verify_button, pattern="^verify_"))
+
 app.add_handler(candidate_handler)
 app.add_handler(looking_handler)
+
+app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(button))
+
 app.add_handler(MessageHandler(filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND, moderate_message))
 
 print("Bot avviato...")
