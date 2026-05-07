@@ -11,7 +11,6 @@ GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 
 ROLE_VERIFIED_KEYWORD = "verified"
 ROLE_NEW_KEYWORD = "nuovo arrivato"
-
 CHANNEL_LOG_KEYWORD = "admin-logs"
 
 ROLE_OPTIONS = {
@@ -83,7 +82,12 @@ def find_channel(guild: discord.Guild, keyword: str):
     return None
 
 
-async def send_admin_log(guild: discord.Guild, title: str, description: str, color=0x2ecc71):
+async def send_admin_log(
+    guild: discord.Guild,
+    title: str,
+    description: str,
+    color=0x2ecc71
+):
     channel = find_channel(guild, CHANNEL_LOG_KEYWORD)
 
     if not channel:
@@ -108,7 +112,7 @@ class RolePickerView(discord.ui.View):
 
         if not guild or not isinstance(member, discord.Member):
             await interaction.response.send_message(
-                "Errore: impossibile assegnare il ruolo.",
+                "❌ Errore: impossibile assegnare il ruolo.",
                 ephemeral=True
             )
             return
@@ -117,7 +121,7 @@ class RolePickerView(discord.ui.View):
 
         if not role_data:
             await interaction.response.send_message(
-                "Errore: ruolo non configurato.",
+                "❌ Errore: ruolo non configurato.",
                 ephemeral=True
             )
             return
@@ -126,7 +130,7 @@ class RolePickerView(discord.ui.View):
 
         if not role:
             await interaction.response.send_message(
-                f"Errore: ruolo `{role_data['label']}` non trovato. Contatta lo staff.",
+                f"❌ Errore: ruolo `{role_data['label']}` non trovato. Contatta lo staff.",
                 ephemeral=True
             )
             return
@@ -169,13 +173,13 @@ class RolePickerView(discord.ui.View):
 
         except discord.Forbidden:
             await interaction.response.send_message(
-                "Errore permessi: il bot non può assegnare questo ruolo. Controlla l’ordine dei ruoli.",
+                "❌ Errore permessi: il bot non può assegnare questo ruolo. Controlla l’ordine dei ruoli.",
                 ephemeral=True
             )
 
         except Exception as error:
             await interaction.response.send_message(
-                "Errore imprevisto durante l’assegnazione del ruolo.",
+                "❌ Errore imprevisto durante l’assegnazione del ruolo.",
                 ephemeral=True
             )
             print(f"Errore role picker: {error}")
@@ -186,7 +190,11 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="redm_role_player"
     )
-    async def player_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def player_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
         await self.toggle_role(interaction, "player")
 
     @discord.ui.button(
@@ -195,7 +203,11 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="redm_role_developer"
     )
-    async def developer_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def developer_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
         await self.toggle_role(interaction, "developer")
 
     @discord.ui.button(
@@ -204,7 +216,11 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="redm_role_mapper"
     )
-    async def mapper_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def mapper_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
         await self.toggle_role(interaction, "mapper")
 
     @discord.ui.button(
@@ -213,7 +229,11 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="redm_role_ui_designer"
     )
-    async def ui_designer_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def ui_designer_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
         await self.toggle_role(interaction, "ui_designer")
 
     @discord.ui.button(
@@ -222,7 +242,11 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="redm_role_creator"
     )
-    async def creator_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def creator_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
         await self.toggle_role(interaction, "creator")
 
     @discord.ui.button(
@@ -231,7 +255,11 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.secondary,
         custom_id="redm_role_staff_server"
     )
-    async def staff_server_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def staff_server_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
         await self.toggle_role(interaction, "staff_server")
 
     @discord.ui.button(
@@ -240,7 +268,11 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.secondary,
         custom_id="redm_role_owner"
     )
-    async def owner_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def owner_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
         await self.toggle_role(interaction, "owner")
 
 
@@ -264,7 +296,7 @@ class VerifyView(discord.ui.View):
 
         if not guild or not isinstance(member, discord.Member):
             await interaction.response.send_message(
-                "Errore: impossibile completare la verifica.",
+                "❌ Errore: impossibile completare la verifica.",
                 ephemeral=True
             )
             return
@@ -274,16 +306,17 @@ class VerifyView(discord.ui.View):
 
         if not verified_role:
             await interaction.response.send_message(
-                "Errore: ruolo Verified non trovato. Contatta lo staff.",
+                "❌ Errore: ruolo Verified non trovato. Contatta lo staff.",
                 ephemeral=True
             )
             return
 
         try:
-            await member.add_roles(
-                verified_role,
-                reason="Verifica completata tramite RedM Italia Bot"
-            )
+            if verified_role not in member.roles:
+                await member.add_roles(
+                    verified_role,
+                    reason="Verifica completata tramite RedM Italia Bot"
+                )
 
             if new_role and new_role in member.roles:
                 await member.remove_roles(
@@ -331,13 +364,13 @@ class VerifyView(discord.ui.View):
 
         except discord.Forbidden:
             await interaction.response.send_message(
-                "Errore permessi: il bot non può assegnare il ruolo Verified. Controlla l’ordine dei ruoli.",
+                "❌ Errore permessi: il bot non può assegnare il ruolo Verified. Controlla l’ordine dei ruoli.",
                 ephemeral=True
             )
 
         except Exception as error:
             await interaction.response.send_message(
-                "Errore imprevisto durante la verifica. Contatta lo staff.",
+                "❌ Errore imprevisto durante la verifica. Contatta lo staff.",
                 ephemeral=True
             )
             print(f"Errore verifica: {error}")
