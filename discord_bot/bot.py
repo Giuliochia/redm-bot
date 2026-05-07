@@ -13,6 +13,8 @@ ROLE_VERIFIED_KEYWORD = "verified"
 ROLE_NEW_KEYWORD = "nuovo arrivato"
 CHANNEL_LOG_KEYWORD = "admin-logs"
 
+GUILD_OBJECT = discord.Object(id=GUILD_ID)
+
 ROLE_OPTIONS = {
     "player": {
         "label": "Player",
@@ -393,8 +395,10 @@ async def on_ready():
     )
 
     try:
-        synced = await bot.tree.sync()
-        print(f"✅ Slash commands sincronizzati: {len(synced)}")
+        synced = await bot.tree.sync(guild=GUILD_OBJECT)
+        print(f"✅ Slash commands GUILD sincronizzati: {len(synced)}")
+        for command in synced:
+            print(f"   /{command.name}")
     except Exception as e:
         print(f"❌ Errore sync slash commands: {e}")
 
@@ -424,7 +428,8 @@ async def on_member_join(member: discord.Member):
 
 @bot.tree.command(
     name="ping",
-    description="Test bot"
+    description="Test bot",
+    guild=GUILD_OBJECT
 )
 async def ping(interaction: discord.Interaction):
     await interaction.response.send_message(
@@ -435,7 +440,8 @@ async def ping(interaction: discord.Interaction):
 
 @bot.tree.command(
     name="setup_verifica",
-    description="Invia il pannello verifica nel canale corrente"
+    description="Invia il pannello verifica nel canale corrente",
+    guild=GUILD_OBJECT
 )
 @app_commands.checks.has_permissions(manage_guild=True)
 async def setup_verifica(interaction: discord.Interaction):
@@ -479,7 +485,8 @@ async def setup_verifica_error(
 
 @bot.tree.command(
     name="ruoli",
-    description="Invia il pannello selezione ruoli nel canale corrente"
+    description="Invia il pannello selezione ruoli nel canale corrente",
+    guild=GUILD_OBJECT
 )
 @app_commands.checks.has_permissions(manage_guild=True)
 async def ruoli(interaction: discord.Interaction):
