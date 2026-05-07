@@ -40,16 +40,6 @@ ROLE_OPTIONS = {
         "label": "Creator",
         "emoji": "🎥",
         "keyword": "creator"
-    },
-    "staff_server": {
-        "label": "Staff Server",
-        "emoji": "🛡️",
-        "keyword": "staff server"
-    },
-    "owner": {
-        "label": "Owner",
-        "emoji": "🏜️",
-        "keyword": "owner"
     }
 }
 
@@ -251,32 +241,6 @@ class RolePickerView(discord.ui.View):
     ):
         await self.toggle_role(interaction, "creator")
 
-    @discord.ui.button(
-        label="Staff Server",
-        emoji="🛡️",
-        style=discord.ButtonStyle.secondary,
-        custom_id="redm_role_staff_server"
-    )
-    async def staff_server_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-        await self.toggle_role(interaction, "staff_server")
-
-    @discord.ui.button(
-        label="Owner",
-        emoji="🏜️",
-        style=discord.ButtonStyle.secondary,
-        custom_id="redm_role_owner"
-    )
-    async def owner_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
-        await self.toggle_role(interaction, "owner")
-
 
 class VerifyView(discord.ui.View):
     def __init__(self):
@@ -343,9 +307,7 @@ class VerifyView(discord.ui.View):
                     "💻 Developer\n"
                     "🗺️ Mapper\n"
                     "🎨 UI Designer\n"
-                    "🎥 Creator\n"
-                    "🛡️ Staff Server\n"
-                    "🏜️ Owner"
+                    "🎥 Creator"
                 ),
                 inline=False
             )
@@ -507,9 +469,7 @@ async def ruoli(interaction: discord.Interaction):
             "💻 **Developer** — sviluppi script, sistemi o framework\n"
             "🗺️ **Mapper** — crei mappe, MLO o ambientazioni\n"
             "🎨 **UI Designer** — lavori su UI, grafiche o UX\n"
-            "🎥 **Creator** — crei contenuti, clip o live\n"
-            "🛡️ **Staff Server** — fai parte dello staff di un server\n"
-            "🏜️ **Owner** — gestisci o rappresenti un server"
+            "🎥 **Creator** — crei contenuti, clip o live"
         ),
         inline=False
     )
