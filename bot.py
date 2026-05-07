@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import asyncio
 from datetime import datetime, timedelta, timezone
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
@@ -21,13 +20,13 @@ DEV_THREAD_ID = 64
 
 BOT_USERNAME = "redmhub_ita_bot"
 
-ASK_NAME, ASK_WL, ASK_DESC, ASK_FEATURES, ASK_DISCORD, ASK_BANNER = range(6)
-LOOK_TYPE, LOOK_SERVER, LOOK_ROLE, LOOK_DESC, LOOK_DISCORD = range(6, 11)
+ASK_NAME, ASK_WL, ASK_DESC, ASK_FEATURES, ASK_DISCORD, ASK_BANNER, ASK_CONFIRM = range(7)
+LOOK_TYPE, LOOK_SERVER, LOOK_ROLE, LOOK_DESC, LOOK_DISCORD = range(7, 12)
 
 FEATURED_FILE = "featured_servers.json"
+WARNINGS_FILE = "warnings.json"
+PENDING_FILE = "pending_servers.json"
 
-pending_servers = {}
-user_warnings = {}
 pending_verifications = {}
 
 BAD_WORDS = [
@@ -40,6 +39,13 @@ ALLOWED_LINKS = [
     "discord.gg", "discord.com", "youtube.com", "youtu.be",
     "tiktok.com", "t.me", "telegram.me"
 ]
+
+DISCORD_INVITE_REGEX = re.compile(
+    r"^(https?://)?(www\.)?"
+    r"(discord\.gg/[a-zA-Z0-9-]+|discord\.com/invite/[a-zA-Z0-9-]+|discordapp\.com/invite/[a-zA-Z0-9-]+)"
+    r"/?(\?.*)?$",
+    re.IGNORECASE
+)
 
 servers = {
     "wildlands": {
@@ -118,23 +124,37 @@ partners = {
 }
 
 
-def load_featured_servers():
-    if not os.path.exists(FEATURED_FILE):
-        return {}
+def load_json_file(path, default):
+    if not os.path.exists(path):
+        return default
 
     try:
-        with open(FEATURED_FILE, "r", encoding="utf-8") as file:
+        with open(path, "r", encoding="utf-8") as file:
             return json.load(file)
     except Exception:
-        return {}
+        return default
 
 
-def save_featured_servers(data):
-    with open(FEATURED_FILE, "w", encoding="utf-8") as file:
+def save_json_file(path, data):
+    with open(path, "w", encoding="utf-8") as file:
         json.dump(data, file, ensure_ascii=False, indent=4)
 
 
-featured_servers = load_featured_servers()
+featured_servers = load_json_file(FEATURED_FILE, {})
+user_warnings = load_json_file(WARNINGS_FILE, {})
+pending_servers = load_json_file(PENDING_FILE, {})
+
+
+def save_featured_servers():
+    save_json_file(FEATURED_FILE, featured_servers)
+
+
+def save_warnings():
+    save_json_file(WARNINGS_FILE, user_warnings)
+
+
+def save_pending_servers():
+    save_json_file(PENDING_FILE, pending_servers)
 
 
 def make_featured_key(name):
@@ -170,6 +190,16 @@ async def require_owner_callback(query):
     return True
 
 
+async def admin_log(context: ContextTypes.DEFAULT_TYPE, text):
+    try:
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"🧾 LOG ADMIN\n\n{text}"
+        )
+    except Exception:
+        pass
+
+
 def home_keyboard(user_id=None):
     keyboard = [
         [InlineKeyboardButton("⭐ Server consigliati", callback_data="server_list")],
@@ -203,6 +233,15 @@ def full_permissions():
 
 def no_permissions():
     return ChatPermissions(can_send_messages=False)
+
+
+def clean_link(text):
+    return text.strip().strip("<>").rstrip(".,;!?)(")
+
+
+def is_valid_discord_link(text):
+    link = clean_link(text)
+    return bool(DISCORD_INVITE_REGEX.match(link))
 
 
 def format_premium_card(server):
@@ -322,8 +361,10 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return False
 
 
-async def verify_timeout(context: ContextTypes.DEFAULT_TYPE, chat_id, user_id):
-    await asyncio.sleep(60)
+async def verify_timeout_job(context: ContextTypes.DEFAULT_TYPE):
+    data = context.job.data
+    chat_id = data["chat_id"]
+    user_id = data["user_id"]
 
     key = f"{chat_id}_{user_id}"
 
@@ -337,6 +378,11 @@ async def verify_timeout(context: ContextTypes.DEFAULT_TYPE, chat_id, user_id):
         await context.bot.send_message(
             chat_id=chat_id,
             text="🚫 Utente rimosso: verifica non completata entro 60 secondi."
+        )
+
+        await admin_log(
+            context,
+            f"🚫 Verifica fallita\n\nChat ID: {chat_id}\nUtente ID: {user_id}\nAzione: espulso automaticamente"
         )
 
     except Exception:
@@ -389,7 +435,27 @@ async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
-        asyncio.create_task(verify_timeout(context, chat_id, user_id))
+        if context.job_queue:
+            context.job_queue.run_once(
+                verify_timeout_job,
+                when=60,
+                data={"chat_id": chat_id, "user_id": user_id},
+                name=f"verify_{chat_id}_{user_id}"
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=(
+                    "⚠️ JobQueue non disponibile.\n\n"
+                    "Installa python-telegram-bot con:\n"
+                    "python-telegram-bot[job-queue]"
+                )
+            )
+
+        await admin_log(
+            context,
+            f"🛡 Nuovo utente in verifica\n\nUtente: @{member.username or 'senza username'}\nID: {user_id}\nTempo: 60 secondi"
+        )
 
 
 async def verify_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -442,6 +508,11 @@ async def verify_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     )
 
+    await admin_log(
+        context,
+        f"✅ Verifica completata\n\nUtente: @{query.from_user.username or 'senza username'}\nID: {user_id}"
+    )
+
 
 async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE, reason):
     user = update.effective_user
@@ -449,6 +520,8 @@ async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE, reason):
     key = f"{chat_id}_{user.id}"
 
     user_warnings[key] = user_warnings.get(key, 0) + 1
+    save_warnings()
+
     warns = user_warnings[key]
 
     try:
@@ -467,16 +540,14 @@ async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE, reason):
         parse_mode="HTML"
     )
 
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=(
-            f"🚨 Moderazione\n\n"
-            f"Gruppo: {update.effective_chat.title}\n"
-            f"Utente: @{user.username or 'senza username'}\n"
-            f"ID: {user.id}\n"
-            f"Motivo: {reason}\n"
-            f"Warn: {warns}/3"
-        )
+    await admin_log(
+        context,
+        f"🚨 Moderazione\n\n"
+        f"Gruppo: {update.effective_chat.title}\n"
+        f"Utente: @{user.username or 'senza username'}\n"
+        f"ID: {user.id}\n"
+        f"Motivo: {reason}\n"
+        f"Warn: {warns}/3"
     )
 
     if warns >= 3:
@@ -497,6 +568,12 @@ async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE, reason):
             )
 
             user_warnings[key] = 0
+            save_warnings()
+
+            await admin_log(
+                context,
+                f"🔇 Mute automatico\n\nUtente: @{user.username or 'senza username'}\nID: {user.id}\nDurata: 10 minuti"
+            )
 
         except Exception:
             await context.bot.send_message(
@@ -753,7 +830,8 @@ Contatta un admin della community.
             "🧰 Pannello Admin\n\n"
             f"📨 Candidature in attesa: {len(pending_servers)}\n"
             f"⭐ Server consigliati aggiunti: {len(featured_servers)}\n"
-            f"🚨 Sistema moderazione: attivo",
+            f"🚨 Warn salvati: {len(user_warnings)}\n"
+            f"🛡 Verifiche in corso: {len(pending_verifications)}",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
@@ -806,13 +884,18 @@ Contatta un admin della community.
         server_name = featured_servers[featured_key]["nome"]
 
         del featured_servers[featured_key]
-        save_featured_servers(featured_servers)
+        save_featured_servers()
 
         await query.edit_message_text(
             f"❌ Server rimosso dai consigliati\n\n🏜 {server_name}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⬅️ Torna admin", callback_data="admin_panel")]
             ])
+        )
+
+        await admin_log(
+            context,
+            f"⭐ Server rimosso dai consigliati\n\nServer: {server_name}\nAdmin: @{query.from_user.username or 'senza username'}"
         )
 
     elif query.data.startswith("approve_featured_"):
@@ -831,7 +914,7 @@ Contatta un admin della community.
 
         featured_key = make_featured_key(server["nome"])
         featured_servers[featured_key] = server
-        save_featured_servers(featured_servers)
+        save_featured_servers()
 
         await publish_server(context, server)
 
@@ -840,6 +923,12 @@ Contatta un admin della community.
         )
 
         del pending_servers[submission_id]
+        save_pending_servers()
+
+        await admin_log(
+            context,
+            f"⭐ Candidatura approvata + consigliati\n\nServer: {server['nome']}\nAdmin: @{query.from_user.username or 'senza username'}"
+        )
 
     elif query.data.startswith("approve_"):
         if not await require_owner_callback(query):
@@ -859,6 +948,12 @@ Contatta un admin della community.
         )
 
         del pending_servers[submission_id]
+        save_pending_servers()
+
+        await admin_log(
+            context,
+            f"✅ Candidatura approvata\n\nServer: {server['nome']}\nAdmin: @{query.from_user.username or 'senza username'}"
+        )
 
     elif query.data.startswith("reject_"):
         if not await require_owner_callback(query):
@@ -876,6 +971,12 @@ Contatta un admin della community.
         )
 
         del pending_servers[submission_id]
+        save_pending_servers()
+
+        await admin_log(
+            context,
+            f"❌ Candidatura rifiutata\n\nServer: {server['nome']}\nAdmin: @{query.from_user.username or 'senza username'}"
+        )
 
 
 async def publish_server(context: ContextTypes.DEFAULT_TYPE, server):
@@ -941,13 +1042,14 @@ async def look_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def look_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    discord = update.message.text.strip()
+    discord = clean_link(update.message.text)
 
-    if "discord.gg" not in discord and "discord.com" not in discord:
+    if not is_valid_discord_link(discord):
         await update.message.reply_text(
             "❌ Link Discord non valido.\n\n"
-            "Manda un link tipo:\n"
-            "https://discord.gg/xxxxx"
+            "Sono accettati solo link invito Discord validi, per esempio:\n"
+            "https://discord.gg/xxxxx\n"
+            "https://discord.com/invite/xxxxx"
         )
 
         return LOOK_DISCORD
@@ -976,6 +1078,11 @@ async def look_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "✅ Annuncio pubblicato nella community!"
+    )
+
+    await admin_log(
+        context,
+        f"👥 Nuovo annuncio pubblicato\n\nTipo: {data['tipo']}\nServer: {data['server']}\nUtente: @{update.effective_user.username or 'senza username'}"
     )
 
     context.user_data.clear()
@@ -1044,13 +1151,14 @@ async def ask_features(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    discord = update.message.text.strip()
+    discord = clean_link(update.message.text)
 
-    if "discord.gg" not in discord and "discord.com" not in discord:
+    if not is_valid_discord_link(discord):
         await update.message.reply_text(
             "❌ Link Discord non valido.\n\n"
-            "Manda un link tipo:\n"
-            "https://discord.gg/xxxxx"
+            "Sono accettati solo link invito Discord validi, per esempio:\n"
+            "https://discord.gg/xxxxx\n"
+            "https://discord.com/invite/xxxxx"
         )
 
         return ASK_DISCORD
@@ -1065,6 +1173,40 @@ async def ask_discord(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     return ASK_BANNER
+
+
+async def send_candidate_preview(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    candidate = context.user_data["candidate"]
+    preview_text = f"""📨 Preview candidatura
+
+Controlla i dati prima di inviare:
+
+{format_public_server_post(candidate)}
+
+Vuoi inviare questa candidatura agli admin?
+"""
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("✅ Invia candidatura", callback_data="confirm_candidate"),
+            InlineKeyboardButton("❌ Annulla", callback_data="cancel_candidate")
+        ]
+    ])
+
+    if update.message:
+        await update.message.reply_text(
+            preview_text,
+            reply_markup=keyboard,
+            disable_web_page_preview=False
+        )
+    else:
+        await update.callback_query.message.reply_text(
+            preview_text,
+            reply_markup=keyboard,
+            disable_web_page_preview=False
+        )
+
+    return ASK_CONFIRM
 
 
 async def ask_banner(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1087,34 +1229,63 @@ async def ask_banner(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["candidate"]["image_file_id"] = photo.file_id
 
-    return await finalize_candidate(update, context)
+    return await send_candidate_preview(update, context)
 
 
 async def skip_banner(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["candidate"]["image_file_id"] = None
 
-    return await finalize_candidate(update, context)
+    return await send_candidate_preview(update, context)
+
+
+async def confirm_candidate_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "cancel_candidate":
+        context.user_data.clear()
+
+        await query.edit_message_text(
+            "❌ Candidatura annullata.\n\n"
+            "Puoi ricominciare quando vuoi dal menu principale."
+        )
+
+        return ConversationHandler.END
+
+    if query.data == "confirm_candidate":
+        return await finalize_candidate(update, context)
+
+    return ASK_CONFIRM
 
 
 async def finalize_candidate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
     candidate = context.user_data["candidate"]
+    user = update.effective_user
 
     submission_id = (
-        str(update.effective_user.id)
+        str(user.id)
         + "_"
-        + str(update.message.message_id)
+        + datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     )
 
-    pending_servers[submission_id] = candidate
+    candidate["submitted_by_id"] = user.id
+    candidate["submitted_by_username"] = user.username or "senza username"
+    candidate["submitted_at"] = datetime.now(timezone.utc).isoformat()
 
-    await update.message.reply_text(
+    pending_servers[submission_id] = candidate
+    save_pending_servers()
+
+    await query.edit_message_text(
         "✅ Candidatura inviata!\n\n"
         "Un admin controllerà la richiesta."
     )
 
     admin_text = f"""📨 NUOVA CANDIDATURA SERVER
 
-👤 Utente: @{update.effective_user.username or 'senza username'}
+👤 Utente: @{user.username or 'senza username'}
+🆔 ID: {user.id}
+🕒 Inviata il: {datetime.now().strftime('%d/%m/%Y %H:%M')}
 
 {format_public_server_post(candidate)}
 """
@@ -1143,6 +1314,11 @@ async def finalize_candidate(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=InlineKeyboardMarkup(keyboard),
             disable_web_page_preview=False
         )
+
+    await admin_log(
+        context,
+        f"📨 Nuova candidatura ricevuta\n\nServer: {candidate['nome']}\nUtente: @{user.username or 'senza username'}\nID candidatura: {submission_id}"
+    )
 
     context.user_data.clear()
 
@@ -1177,6 +1353,9 @@ candidate_handler = ConversationHandler(
         ASK_BANNER: [
             MessageHandler(filters.PHOTO, ask_banner),
             CommandHandler("skip", skip_banner)
+        ],
+        ASK_CONFIRM: [
+            CallbackQueryHandler(confirm_candidate_button, pattern="^(confirm_candidate|cancel_candidate)$")
         ],
     },
     fallbacks=[
