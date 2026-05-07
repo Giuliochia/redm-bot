@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatPermissions
@@ -27,6 +28,7 @@ FEATURED_FILE = "featured_servers.json"
 
 pending_servers = {}
 user_warnings = {}
+pending_verifications = {}
 
 BAD_WORDS = [
     "mongolo", "ritardato", "handicappato", "frocio", "negro",
@@ -163,6 +165,25 @@ def home_keyboard():
     ])
 
 
+def full_permissions():
+    return ChatPermissions(
+        can_send_messages=True,
+        can_send_audios=True,
+        can_send_documents=True,
+        can_send_photos=True,
+        can_send_videos=True,
+        can_send_video_notes=True,
+        can_send_voice_notes=True,
+        can_send_polls=True,
+        can_send_other_messages=True,
+        can_add_web_page_previews=True
+    )
+
+
+def no_permissions():
+    return ChatPermissions(can_send_messages=False)
+
+
 def format_premium_card(server):
     features = "\n".join([f"• {f}" for f in server["feature"]])
 
@@ -280,6 +301,127 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return False
 
 
+async def verify_timeout(context: ContextTypes.DEFAULT_TYPE, chat_id, user_id):
+    await asyncio.sleep(60)
+
+    key = f"{chat_id}_{user_id}"
+
+    if key not in pending_verifications:
+        return
+
+    try:
+        await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
+        await context.bot.unban_chat_member(chat_id=chat_id, user_id=user_id)
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="🚫 Utente rimosso: verifica non completata entro 60 secondi."
+        )
+
+    except Exception:
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text="⚠️ Non sono riuscito a rimuovere un utente non verificato. Controlla i permessi del bot."
+        )
+
+    pending_verifications.pop(key, None)
+
+
+async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_chat.id != GROUP_CHAT_ID:
+        return
+
+    for member in update.message.new_chat_members:
+        if member.is_bot:
+            continue
+
+        user_id = member.id
+        chat_id = update.effective_chat.id
+        key = f"{chat_id}_{user_id}"
+
+        pending_verifications[key] = True
+
+        try:
+            await context.bot.restrict_chat_member(
+                chat_id=chat_id,
+                user_id=user_id,
+                permissions=no_permissions()
+            )
+        except Exception:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text="⚠️ Non sono riuscito a bloccare temporaneamente un nuovo utente. Controlla i permessi del bot."
+            )
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Verificami", callback_data=f"verify_{user_id}")]
+        ])
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=(
+                f"👋 Benvenuto {member.mention_html()}!\n\n"
+                "Per accedere alla community premi il bottone qui sotto.\n"
+                "Hai 60 secondi per verificarti."
+            ),
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+        asyncio.create_task(verify_timeout(context, chat_id, user_id))
+
+
+async def verify_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = int(query.data.replace("verify_", ""))
+    clicker_id = query.from_user.id
+    chat_id = query.message.chat_id
+    key = f"{chat_id}_{user_id}"
+
+    if clicker_id != user_id:
+        await query.answer("Questo bottone non è per te.", show_alert=True)
+        return
+
+    if key not in pending_verifications:
+        await query.answer("Verifica già completata o scaduta.", show_alert=True)
+        return
+
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id=chat_id,
+            user_id=user_id,
+            permissions=full_permissions()
+        )
+    except Exception:
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text="⚠️ Non sono riuscito a sbloccare un utente verificato. Controlla i permessi del bot."
+        )
+        return
+
+    pending_verifications.pop(key, None)
+
+    await query.edit_message_text(
+        "✅ Verifica completata!\n\n"
+        "Benvenuto in RedM Hub Italia 🤠"
+    )
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            "📌 Guida rapida community\n\n"
+            "⭐ Server consigliati → trovi i server RedM selezionati\n"
+            "📢 Promo Server → usa il bot per candidare il tuo server\n"
+            "👥 Cerco Player/Fazione → trova player o gruppi RP\n"
+            "🛡 Cerco Staff → cerca o offri supporto staff\n"
+            "💻 Cerco Developer → cerca dev RedM / Lua / mapping\n\n"
+            "❌ No spam, no flame, rispetto per tutti."
+        )
+    )
+
+
 async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE, reason):
     user = update.effective_user
     chat_id = update.effective_chat.id
@@ -323,7 +465,7 @@ async def warn_user(update: Update, context: ContextTypes.DEFAULT_TYPE, reason):
             await context.bot.restrict_chat_member(
                 chat_id=chat_id,
                 user_id=user.id,
-                permissions=ChatPermissions(can_send_messages=False),
+                permissions=no_permissions(),
                 until_date=until_date
             )
 
@@ -953,6 +1095,8 @@ looking_handler = ConversationHandler(
 
 app.add_handler(CommandHandler("test", test))
 app.add_handler(CommandHandler("promo_message", promo_message))
+app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
+app.add_handler(CallbackQueryHandler(verify_button, pattern="^verify_"))
 app.add_handler(candidate_handler)
 app.add_handler(looking_handler)
 app.add_handler(CallbackQueryHandler(button))
