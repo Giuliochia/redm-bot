@@ -432,28 +432,28 @@ async def generate_welcome_card(member):
 
     member_count = member.guild.member_count or len(member.guild.members)
 
-    member_number_font = get_font(64)
+    member_number_font = get_font(72)
     member_number_text = f"#{member_count}"
 
     number_bbox = draw.textbbox(
     (0, 0),
     member_number_text,
     font=member_number_font,
-    stroke_width=3
+    stroke_width=4
 )
 
     number_width = number_bbox[2] - number_bbox[0]
 
-    number_center_x = 410
+    number_center_x = 390
     number_x = number_center_x - number_width // 2
-    number_y = 328
+    number_y = 372
 
     draw.text(
     (number_x, number_y),
     member_number_text,
     font=member_number_font,
     fill=(255, 255, 255, 255),
-    stroke_width=4,
+    stroke_width=5,
     stroke_fill=(0, 0, 0, 255)
 )
 
