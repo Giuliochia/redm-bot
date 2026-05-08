@@ -1,7 +1,3 @@
-# =========================
-# REDM ITALIA BOT
-# =========================
-
 import os
 import io
 import time
@@ -14,20 +10,29 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# =========================
-# CONFIG
-# =========================
-
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 
 ROLE_VERIFIED_KEYWORD = "verified"
 ROLE_NEW_KEYWORD = "nuovo arrivato"
-
 CHANNEL_LOG_KEYWORD = "admin-logs"
 
 TICKET_CATEGORY_NAME = "🎫 | TICKET"
 TICKET_CATEGORY_KEYWORD = "ticket"
+
+BRAND_NAME = "RedM Italia Community"
+BRAND_COLOR = 0x8B0000
+SUCCESS_COLOR = 0x2ECC71
+INFO_COLOR = 0x3498DB
+DANGER_COLOR = 0xE74C3C
+WARNING_COLOR = 0xF1C40F
+
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+
+BANNER_VERIFICA = os.path.join(ASSETS_DIR, "banner_verifica.png")
+BANNER_RUOLI = os.path.join(ASSETS_DIR, "banner_ruoli.png")
+BANNER_DISCORD = os.path.join(ASSETS_DIR, "banner_discord.png")
+LOGO_IMAGE = os.path.join(ASSETS_DIR, "logo.png")
 
 TICKET_STAFF_ROLE_KEYWORDS = [
     "founder",
@@ -45,16 +50,7 @@ SETUP_ALLOWED_ROLE_KEYWORDS = [
 
 GUILD_OBJECT = discord.Object(id=GUILD_ID)
 
-# =========================
-# CACHE
-# =========================
-
 ticket_claims = {}
-ticket_cooldowns = {}
-
-# =========================
-# ROLE OPTIONS
-# =========================
 
 ROLE_OPTIONS = {
     "player": {
@@ -84,43 +80,32 @@ ROLE_OPTIONS = {
     }
 }
 
-# =========================
-# TICKET TYPES
-# =========================
-
 TICKET_TYPES = {
     "supporto_generale": {
         "label": "Supporto Generale",
         "emoji": "🎫",
         "channel_prefix": "supporto",
-        "color": 0x3498db
+        "color": INFO_COLOR
     },
-
     "partnership": {
         "label": "Partnership",
         "emoji": "🤝",
         "channel_prefix": "partnership",
-        "color": 0x9b59b6
+        "color": 0x9B59B6
     },
-
     "promozione_server": {
         "label": "Promozione Server",
         "emoji": "⭐",
         "channel_prefix": "server",
-        "color": 0xf1c40f
+        "color": WARNING_COLOR
     },
-
     "candidatura_staff": {
         "label": "Candidatura Staff",
         "emoji": "💼",
         "channel_prefix": "staff",
-        "color": 0x2ecc71
+        "color": SUCCESS_COLOR
     }
 }
-
-# =========================
-# DISCORD INTENTS
-# =========================
 
 intents = discord.Intents.default()
 intents.guilds = True
@@ -132,9 +117,26 @@ bot = commands.Bot(
     intents=intents
 )
 
-# =========================
-# UTILS
-# =========================
+
+def asset_exists(path):
+    return os.path.exists(path)
+
+
+def make_file(path, filename):
+    if not asset_exists(path):
+        return None
+
+    return discord.File(path, filename=filename)
+
+
+def apply_brand(embed, guild=None):
+    embed.set_footer(text=f"{BRAND_NAME} • Sistema ufficiale")
+
+    if guild and guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+
+    return embed
+
 
 def find_role(guild, keyword):
     keyword = keyword.lower()
@@ -152,7 +154,7 @@ def find_roles(guild, keywords):
     for keyword in keywords:
         role = find_role(guild, keyword)
 
-        if role:
+        if role and role not in roles:
             roles.append(role)
 
     return roles
@@ -184,6 +186,9 @@ def clean_channel_name(name):
     name = name.lower().replace(" ", "-")
     name = "".join(c for c in name if c in allowed)
 
+    if not name:
+        name = "utente"
+
     return name[:25]
 
 
@@ -202,12 +207,17 @@ def member_is_ticket_staff(member):
         TICKET_STAFF_ROLE_KEYWORDS
     )
 
+    if member.guild_permissions.manage_channels:
+        return True
+
     return any(role in member.roles for role in staff_roles)
 
 
 def member_can_use_setup_commands(member):
-
     if member.guild_permissions.administrator:
+        return True
+
+    if member.guild_permissions.manage_guild:
         return True
 
     for role in member.roles:
@@ -221,7 +231,6 @@ def member_can_use_setup_commands(member):
 
 
 def is_ticket_channel(channel):
-
     if not channel.topic:
         return False
 
@@ -229,21 +238,16 @@ def is_ticket_channel(channel):
 
 
 def get_ticket_owner_id(channel):
-
     if not channel.topic:
         return None
 
     try:
-        return channel.topic.split(
-            "ticket_owner:"
-        )[1].split(" ")[0]
-
+        return channel.topic.split("ticket_owner:")[1].split(" ")[0]
     except Exception:
         return None
 
 
 async def get_or_create_ticket_category(guild):
-
     category = find_category(
         guild,
         TICKET_CATEGORY_KEYWORD
@@ -261,7 +265,7 @@ async def send_admin_log(
     guild,
     title,
     description,
-    color=0x3498db,
+    color=INFO_COLOR,
     file=None
 ):
     channel = find_channel(
@@ -278,56 +282,31 @@ async def send_admin_log(
         color=color
     )
 
-    embed.set_footer(
-        text="RedM Italia Community • Admin Logs"
-    )
+    apply_brand(embed, guild)
 
     await channel.send(
         embed=embed,
         file=file
     )
 
-# =========================
-# TRANSCRIPT
-# =========================
 
 async def generate_ticket_transcript(channel):
-
     lines = []
 
-    lines.append(
-        f"Transcript Ticket: #{channel.name}"
-    )
-
-    lines.append("=" * 50)
+    lines.append(f"Transcript Ticket: #{channel.name}")
+    lines.append("=" * 60)
     lines.append("")
-
-    messages = []
 
     async for message in channel.history(
         limit=None,
         oldest_first=True
     ):
-        messages.append(message)
+        created_at = message.created_at.strftime("%d/%m/%Y %H:%M:%S")
+        content = message.content if message.content else "[embed/allegato]"
 
-    for message in messages:
-
-        created_at = message.created_at.strftime(
-            "%d/%m/%Y %H:%M:%S"
+        lines.append(
+            f"[{created_at}] {message.author}: {content}"
         )
-
-        content = message.content
-
-        if not content:
-            content = "[embed/allegato]"
-
-        line = (
-            f"[{created_at}] "
-            f"{message.author} : "
-            f"{content}"
-        )
-
-        lines.append(line)
 
     transcript_text = "\n".join(lines)
 
@@ -340,27 +319,16 @@ async def generate_ticket_transcript(channel):
         filename=f"{channel.name}-transcript.txt"
     )
 
-# =========================
-# ROLE PICKER
-# =========================
 
 class RolePickerView(discord.ui.View):
-
     def __init__(self):
         super().__init__(timeout=None)
 
-    async def toggle_role(
-        self,
-        interaction,
-        role_key
-    ):
+    async def toggle_role(self, interaction, role_key):
         guild = interaction.guild
         member = interaction.user
 
-        if not guild or not isinstance(
-            member,
-            discord.Member
-        ):
+        if not guild or not isinstance(member, discord.Member):
             return
 
         role_data = ROLE_OPTIONS.get(role_key)
@@ -368,31 +336,29 @@ class RolePickerView(discord.ui.View):
         if not role_data:
             return
 
-        role = find_role(
-            guild,
-            role_data["keyword"]
-        )
+        role = find_role(guild, role_data["keyword"])
 
         if not role:
+            await interaction.response.send_message(
+                f"❌ Ruolo `{role_data['label']}` non trovato.",
+                ephemeral=True
+            )
             return
 
         try:
-
             if role in member.roles:
-
                 await member.remove_roles(role)
 
                 await interaction.response.send_message(
-                    f"❌ Ruolo rimosso: {role.name}",
+                    f"❌ Ruolo rimosso: {role_data['emoji']} **{role.name}**",
                     ephemeral=True
                 )
 
             else:
-
                 await member.add_roles(role)
 
                 await interaction.response.send_message(
-                    f"✅ Ruolo assegnato: {role.name}",
+                    f"✅ Ruolo assegnato: {role_data['emoji']} **{role.name}**",
                     ephemeral=True
                 )
 
@@ -403,88 +369,49 @@ class RolePickerView(discord.ui.View):
         label="Player",
         emoji="🎮",
         style=discord.ButtonStyle.primary,
-        custom_id="role_player"
+        custom_id="redm_role_player"
     )
-    async def player_button(
-        self,
-        interaction,
-        button
-    ):
-        await self.toggle_role(
-            interaction,
-            "player"
-        )
+    async def player_button(self, interaction, button):
+        await self.toggle_role(interaction, "player")
 
     @discord.ui.button(
         label="Developer",
         emoji="💻",
         style=discord.ButtonStyle.primary,
-        custom_id="role_developer"
+        custom_id="redm_role_developer"
     )
-    async def developer_button(
-        self,
-        interaction,
-        button
-    ):
-        await self.toggle_role(
-            interaction,
-            "developer"
-        )
+    async def developer_button(self, interaction, button):
+        await self.toggle_role(interaction, "developer")
 
     @discord.ui.button(
         label="Mapper",
         emoji="🗺️",
         style=discord.ButtonStyle.primary,
-        custom_id="role_mapper"
+        custom_id="redm_role_mapper"
     )
-    async def mapper_button(
-        self,
-        interaction,
-        button
-    ):
-        await self.toggle_role(
-            interaction,
-            "mapper"
-        )
+    async def mapper_button(self, interaction, button):
+        await self.toggle_role(interaction, "mapper")
 
     @discord.ui.button(
         label="UI Designer",
         emoji="🎨",
         style=discord.ButtonStyle.primary,
-        custom_id="role_ui"
+        custom_id="redm_role_ui_designer"
     )
-    async def ui_button(
-        self,
-        interaction,
-        button
-    ):
-        await self.toggle_role(
-            interaction,
-            "ui_designer"
-        )
+    async def ui_button(self, interaction, button):
+        await self.toggle_role(interaction, "ui_designer")
 
     @discord.ui.button(
         label="Creator",
         emoji="🎥",
         style=discord.ButtonStyle.primary,
-        custom_id="role_creator"
+        custom_id="redm_role_creator"
     )
-    async def creator_button(
-        self,
-        interaction,
-        button
-    ):
-        await self.toggle_role(
-            interaction,
-            "creator"
-        )
+    async def creator_button(self, interaction, button):
+        await self.toggle_role(interaction, "creator")
 
-# =========================
-# VERIFY
-# =========================
 
 class VerifyView(discord.ui.View):
-
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -492,20 +419,13 @@ class VerifyView(discord.ui.View):
         label="Verificami",
         emoji="✅",
         style=discord.ButtonStyle.success,
-        custom_id="verify_button"
+        custom_id="redm_verify_button"
     )
-    async def verify_button(
-        self,
-        interaction,
-        button
-    ):
+    async def verify_button(self, interaction, button):
         guild = interaction.guild
         member = interaction.user
 
-        if not guild or not isinstance(
-            member,
-            discord.Member
-        ):
+        if not guild or not isinstance(member, discord.Member):
             return
 
         verified_role = find_role(
@@ -518,23 +438,51 @@ class VerifyView(discord.ui.View):
             ROLE_NEW_KEYWORD
         )
 
-        if verified_role:
-            await member.add_roles(verified_role)
+        if not verified_role:
+            await interaction.response.send_message(
+                "❌ Ruolo Verified non trovato.",
+                ephemeral=True
+            )
+            return
+
+        if verified_role not in member.roles:
+            await member.add_roles(
+                verified_role,
+                reason="Verifica completata"
+            )
 
         if new_role and new_role in member.roles:
-            await member.remove_roles(new_role)
+            await member.remove_roles(
+                new_role,
+                reason="Utente verificato"
+            )
+
+        embed = discord.Embed(
+            title="✅ Verifica completata",
+            description=(
+                f"Benvenuto in **{BRAND_NAME}**, {member.mention}.\n\n"
+                "Ora hai accesso alla community.\n"
+                "Puoi scegliere il ruolo che ti rappresenta usando il pannello ruoli."
+            ),
+            color=SUCCESS_COLOR
+        )
+
+        apply_brand(embed, guild)
 
         await interaction.response.send_message(
-            "✅ Verifica completata.",
+            embed=embed,
             ephemeral=True
         )
 
-# =========================
-# TICKET CONTROLS
-# =========================
+        await send_admin_log(
+            guild,
+            "✅ Utente verificato",
+            f"Utente: {member.mention}\nID: `{member.id}`",
+            color=SUCCESS_COLOR
+        )
+
 
 class TicketControlView(discord.ui.View):
-
     def __init__(self):
         super().__init__(timeout=None)
 
@@ -542,33 +490,21 @@ class TicketControlView(discord.ui.View):
         label="Prendi in carico",
         emoji="📌",
         style=discord.ButtonStyle.primary,
-        custom_id="ticket_claim"
+        custom_id="redm_ticket_claim"
     )
-    async def claim_ticket(
-        self,
-        interaction,
-        button
-    ):
-
+    async def claim_ticket(self, interaction, button):
         member = interaction.user
         channel = interaction.channel
 
-        if not isinstance(
-            member,
-            discord.Member
-        ):
+        if not isinstance(member, discord.Member):
             return
 
-        if not isinstance(
-            channel,
-            discord.TextChannel
-        ):
+        if not isinstance(channel, discord.TextChannel):
             return
 
         if not member_is_ticket_staff(member):
-
             await interaction.response.send_message(
-                "❌ Solo lo staff può claimare ticket.",
+                "❌ Solo lo staff può prendere in carico i ticket.",
                 ephemeral=True
             )
             return
@@ -576,9 +512,8 @@ class TicketControlView(discord.ui.View):
         claimed_by = ticket_claims.get(channel.id)
 
         if claimed_by:
-
             await interaction.response.send_message(
-                "⚠️ Ticket già preso in carico.",
+                "⚠️ Questo ticket è già stato preso in carico.",
                 ephemeral=True
             )
             return
@@ -587,22 +522,19 @@ class TicketControlView(discord.ui.View):
 
         embed = discord.Embed(
             title="📌 Ticket preso in carico",
-            description=(
-                f"{member.mention} "
-                f"ha preso in carico il ticket."
-            ),
-            color=0x3498db
+            description=f"{member.mention} ha preso in carico questo ticket.",
+            color=INFO_COLOR
         )
+
+        apply_brand(embed, member.guild)
 
         await channel.send(embed=embed)
 
         await send_admin_log(
             member.guild,
             "📌 Ticket claimato",
-            (
-                f"Staff: {member.mention}\n"
-                f"Canale: {channel.name}"
-            )
+            f"Staff: {member.mention}\nCanale: `{channel.name}`",
+            color=INFO_COLOR
         )
 
         await interaction.response.send_message(
@@ -614,14 +546,9 @@ class TicketControlView(discord.ui.View):
         label="Chiudi Ticket",
         emoji="🔒",
         style=discord.ButtonStyle.danger,
-        custom_id="ticket_close"
+        custom_id="redm_ticket_close"
     )
-    async def close_ticket(
-        self,
-        interaction,
-        button
-    ):
-
+    async def close_ticket(self, interaction, button):
         guild = interaction.guild
         member = interaction.user
         channel = interaction.channel
@@ -629,16 +556,10 @@ class TicketControlView(discord.ui.View):
         if not guild:
             return
 
-        if not isinstance(
-            member,
-            discord.Member
-        ):
+        if not isinstance(member, discord.Member):
             return
 
-        if not isinstance(
-            channel,
-            discord.TextChannel
-        ):
+        if not isinstance(channel, discord.TextChannel):
             return
 
         owner_id = get_ticket_owner_id(channel)
@@ -647,7 +568,6 @@ class TicketControlView(discord.ui.View):
         is_staff = member_is_ticket_staff(member)
 
         if not is_owner and not is_staff:
-
             await interaction.response.send_message(
                 "❌ Non puoi chiudere questo ticket.",
                 ephemeral=True
@@ -660,19 +580,17 @@ class TicketControlView(discord.ui.View):
         )
 
         try:
-
-            transcript_file = await generate_ticket_transcript(
-                channel
-            )
+            transcript_file = await generate_ticket_transcript(channel)
 
             await send_admin_log(
                 guild,
                 "🔒 Ticket chiuso",
                 (
-                    f"Canale: {channel.name}\n"
-                    f"Chiuso da: {member.mention}"
+                    f"Canale: `{channel.name}`\n"
+                    f"Chiuso da: {member.mention}\n"
+                    f"Owner ID: `{owner_id}`"
                 ),
-                color=0xe74c3c,
+                color=DANGER_COLOR,
                 file=transcript_file
             )
 
@@ -682,29 +600,18 @@ class TicketControlView(discord.ui.View):
         await asyncio.sleep(5)
 
         try:
-
-            ticket_claims.pop(
-                channel.id,
-                None
-            )
-
+            ticket_claims.pop(channel.id, None)
             await channel.delete()
 
         except Exception:
             traceback.print_exc()
 
-# =========================
-# TICKET SELECT
-# =========================
 
 class TicketSelect(discord.ui.Select):
-
     def __init__(self):
-
         options = []
 
         for key, data in TICKET_TYPES.items():
-
             options.append(
                 discord.SelectOption(
                     label=data["label"],
@@ -715,79 +622,74 @@ class TicketSelect(discord.ui.Select):
 
         super().__init__(
             placeholder="Seleziona il tipo di ticket...",
+            min_values=1,
+            max_values=1,
             options=options,
-            custom_id="ticket_select"
+            custom_id="redm_ticket_select"
         )
 
-    async def callback(
-        self,
-        interaction
-    ):
-
+    async def callback(self, interaction):
         try:
-
             guild = interaction.guild
             member = interaction.user
 
-            if not guild or not isinstance(
-                member,
-                discord.Member
-            ):
+            if not guild or not isinstance(member, discord.Member):
                 return
 
             if not member_is_verified(member):
-
                 await interaction.response.send_message(
-                    "❌ Devi essere verificato.",
+                    "❌ Devi essere verificato per aprire un ticket.",
                     ephemeral=True
                 )
                 return
 
-            category = await get_or_create_ticket_category(
-                guild
-            )
+            for channel in guild.text_channels:
+                if channel.topic and f"ticket_owner:{member.id}" in channel.topic:
+                    await interaction.response.send_message(
+                        f"⚠️ Hai già un ticket aperto: {channel.mention}",
+                        ephemeral=True
+                    )
+                    return
 
+            category = await get_or_create_ticket_category(guild)
             staff_roles = find_roles(
                 guild,
                 TICKET_STAFF_ROLE_KEYWORDS
             )
 
             overwrites = {
-                guild.default_role:
-                    discord.PermissionOverwrite(
-                        view_channel=False
-                    ),
-
-                member:
-                    discord.PermissionOverwrite(
-                        view_channel=True,
-                        send_messages=True,
-                        read_message_history=True
-                    )
+                guild.default_role: discord.PermissionOverwrite(
+                    view_channel=False
+                ),
+                member: discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    attach_files=True,
+                    embed_links=True
+                )
             }
 
             for role in staff_roles:
-
-                overwrites[role] = (
-                    discord.PermissionOverwrite(
-                        view_channel=True,
-                        send_messages=True,
-                        manage_channels=True,
-                        read_message_history=True
-                    )
+                overwrites[role] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    manage_channels=True,
+                    read_message_history=True,
+                    attach_files=True,
+                    embed_links=True
                 )
 
             bot_member = guild.me
 
             if bot_member:
-
-                overwrites[bot_member] = (
-                    discord.PermissionOverwrite(
-                        view_channel=True,
-                        send_messages=True,
-                        manage_channels=True,
-                        read_message_history=True
-                    )
+                overwrites[bot_member] = discord.PermissionOverwrite(
+                    view_channel=True,
+                    send_messages=True,
+                    manage_channels=True,
+                    read_message_history=True,
+                    attach_files=True,
+                    embed_links=True
                 )
 
             ticket_type = self.values[0]
@@ -803,24 +705,35 @@ class TicketSelect(discord.ui.Select):
                 name=channel_name,
                 category=category,
                 overwrites=overwrites,
-                topic=f"ticket_owner:{member.id}"
+                topic=f"ticket_owner:{member.id} ticket_type:{ticket_type}",
+                reason=f"Ticket aperto da {member}"
             )
 
             embed = discord.Embed(
                 title=f"{ticket_data['emoji']} Ticket aperto",
                 description=(
-                    f"{member.mention}, "
-                    f"ticket creato correttamente.\n\n"
-                    f"Attendi una risposta dello staff."
+                    f"{member.mention}, il ticket è stato creato correttamente.\n\n"
+                    "Descrivi la tua richiesta in modo chiaro.\n"
+                    "Lo staff ti risponderà appena possibile."
                 ),
                 color=ticket_data["color"]
             )
 
-            await channel.send(
-                content=" ".join(
-                    role.mention
-                    for role in staff_roles
+            embed.add_field(
+                name="Strumenti staff",
+                value=(
+                    "📌 **Prendi in carico** — assegna il ticket a uno staffer\n"
+                    "🔒 **Chiudi Ticket** — chiude il ticket e genera il transcript"
                 ),
+                inline=False
+            )
+
+            apply_brand(embed, guild)
+
+            staff_mentions = " ".join(role.mention for role in staff_roles)
+
+            await channel.send(
+                content=f"{member.mention} {staff_mentions}".strip(),
                 embed=embed,
                 view=TicketControlView()
             )
@@ -830,8 +743,8 @@ class TicketSelect(discord.ui.Select):
                 "🎫 Ticket aperto",
                 (
                     f"Utente: {member.mention}\n"
-                    f"Tipo: {ticket_data['label']}\n"
-                    f"Canale: {channel.name}"
+                    f"Tipo: `{ticket_data['label']}`\n"
+                    f"Canale: {channel.mention}"
                 ),
                 color=ticket_data["color"]
             )
@@ -844,26 +757,21 @@ class TicketSelect(discord.ui.Select):
         except Exception:
             traceback.print_exc()
 
-# =========================
-# TICKET PANEL
-# =========================
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ Errore durante la creazione del ticket.",
+                    ephemeral=True
+                )
+
 
 class TicketPanelView(discord.ui.View):
-
     def __init__(self):
         super().__init__(timeout=None)
+        self.add_item(TicketSelect())
 
-        self.add_item(
-            TicketSelect()
-        )
-
-# =========================
-# EVENTS
-# =========================
 
 @bot.event
 async def on_ready():
-
     print("━━━━━━━━━━━━━━━━━━")
     print(f"✅ Bot online: {bot.user}")
     print("━━━━━━━━━━━━━━━━━━")
@@ -873,34 +781,49 @@ async def on_ready():
     bot.add_view(TicketPanelView())
     bot.add_view(TicketControlView())
 
+    await bot.change_presence(
+        activity=discord.Activity(
+            type=discord.ActivityType.watching,
+            name=BRAND_NAME
+        )
+    )
+
     synced = await bot.tree.sync(
         guild=GUILD_OBJECT
     )
 
     print(
-        f"✅ Slash commands sincronizzati: "
-        f"{len(synced)}"
+        f"✅ Slash commands sincronizzati: {len(synced)}"
     )
+
 
 @bot.event
 async def on_member_join(member):
-
     try:
-
         new_role = find_role(
             member.guild,
             ROLE_NEW_KEYWORD
         )
 
         if new_role:
-            await member.add_roles(new_role)
+            await member.add_roles(
+                new_role,
+                reason="Nuovo membro entrato"
+            )
+
+        await send_admin_log(
+            member.guild,
+            "👋 Nuovo membro",
+            (
+                f"Utente: {member.mention}\n"
+                f"ID: `{member.id}`"
+            ),
+            color=INFO_COLOR
+        )
 
     except Exception:
         traceback.print_exc()
 
-# =========================
-# COMMANDS
-# =========================
 
 @bot.tree.command(
     name="ping",
@@ -908,11 +831,11 @@ async def on_member_join(member):
     guild=GUILD_OBJECT
 )
 async def ping(interaction):
-
     await interaction.response.send_message(
-        "🏓 Pong!",
+        "🏓 Pong! Bot online.",
         ephemeral=True
     )
+
 
 @bot.tree.command(
     name="setup_verifica",
@@ -920,14 +843,12 @@ async def ping(interaction):
     guild=GUILD_OBJECT
 )
 async def setup_verifica(interaction):
-
     member = interaction.user
 
     if not isinstance(member, discord.Member):
         return
 
     if not member_can_use_setup_commands(member):
-
         await interaction.response.send_message(
             "❌ Non hai i permessi.",
             ephemeral=True
@@ -937,21 +858,46 @@ async def setup_verifica(interaction):
     embed = discord.Embed(
         title="✅ Verifica Community",
         description=(
-            "Premi il pulsante qui sotto "
-            "per verificarti."
+            f"Benvenuto in **{BRAND_NAME}**.\n\n"
+            "Per accedere a tutte le sezioni del server premi il pulsante qui sotto.\n\n"
+            "Dopo la verifica potrai:\n"
+            "• accedere ai canali principali\n"
+            "• scegliere il tuo ruolo\n"
+            "• partecipare alla community\n\n"
+            "⚠️ Rispetta il regolamento e mantieni un comportamento corretto."
         ),
-        color=0x2ecc71
+        color=BRAND_COLOR
     )
 
-    await interaction.channel.send(
-        embed=embed,
-        view=VerifyView()
+    embed.add_field(
+        name="Accesso community",
+        value="Premi **✅ Verificami** per completare l’accesso.",
+        inline=False
     )
+
+    apply_brand(embed, interaction.guild)
+
+    file = make_file(BANNER_VERIFICA, "banner_verifica.png")
+
+    if file:
+        embed.set_image(url="attachment://banner_verifica.png")
+
+        await interaction.channel.send(
+            file=file,
+            embed=embed,
+            view=VerifyView()
+        )
+    else:
+        await interaction.channel.send(
+            embed=embed,
+            view=VerifyView()
+        )
 
     await interaction.response.send_message(
         "✅ Pannello verifica pubblicato.",
         ephemeral=True
     )
+
 
 @bot.tree.command(
     name="ruoli",
@@ -959,14 +905,12 @@ async def setup_verifica(interaction):
     guild=GUILD_OBJECT
 )
 async def ruoli(interaction):
-
     member = interaction.user
 
     if not isinstance(member, discord.Member):
         return
 
     if not member_can_use_setup_commands(member):
-
         await interaction.response.send_message(
             "❌ Non hai i permessi.",
             ephemeral=True
@@ -976,21 +920,48 @@ async def ruoli(interaction):
     embed = discord.Embed(
         title="🎭 Scegli il tuo ruolo",
         description=(
-            "Seleziona i ruoli "
-            "che ti rappresentano."
+            "Personalizza la tua esperienza nella community.\n\n"
+            "Puoi selezionare anche più ruoli.\n"
+            "Se clicchi di nuovo su un ruolo già assegnato, verrà rimosso."
         ),
-        color=0x3498db
+        color=BRAND_COLOR
     )
 
-    await interaction.channel.send(
-        embed=embed,
-        view=RolePickerView()
+    embed.add_field(
+        name="Ruoli disponibili",
+        value=(
+            "🎮 **Player** — giochi sui server RedM\n"
+            "💻 **Developer** — sviluppi script, sistemi o framework\n"
+            "🗺️ **Mapper** — crei mappe, MLO o ambientazioni\n"
+            "🎨 **UI Designer** — lavori su UI, grafiche o UX\n"
+            "🎥 **Creator** — crei contenuti, clip o live"
+        ),
+        inline=False
     )
+
+    apply_brand(embed, interaction.guild)
+
+    file = make_file(BANNER_RUOLI, "banner_ruoli.png")
+
+    if file:
+        embed.set_image(url="attachment://banner_ruoli.png")
+
+        await interaction.channel.send(
+            file=file,
+            embed=embed,
+            view=RolePickerView()
+        )
+    else:
+        await interaction.channel.send(
+            embed=embed,
+            view=RolePickerView()
+        )
 
     await interaction.response.send_message(
         "✅ Pannello ruoli pubblicato.",
         ephemeral=True
     )
+
 
 @bot.tree.command(
     name="setup_ticket",
@@ -998,14 +969,12 @@ async def ruoli(interaction):
     guild=GUILD_OBJECT
 )
 async def setup_ticket(interaction):
-
     member = interaction.user
 
     if not isinstance(member, discord.Member):
         return
 
     if not member_can_use_setup_commands(member):
-
         await interaction.response.send_message(
             "❌ Non hai i permessi.",
             ephemeral=True
@@ -1015,26 +984,36 @@ async def setup_ticket(interaction):
     embed = discord.Embed(
         title="🎫 Centro Supporto RedM Italia",
         description=(
-            "Seleziona dal menu "
-            "il tipo di ticket."
+            f"Benvenuto nel centro supporto ufficiale di **{BRAND_NAME}**.\n\n"
+            "Seleziona dal menu qui sotto il tipo di richiesta più adatto.\n"
+            "Lo staff riceverà il tuo ticket in un canale privato."
         ),
-        color=0x3498db
+        color=BRAND_COLOR
     )
 
     embed.add_field(
         name="Categorie disponibili",
         value=(
-            "🎫 Supporto Generale\n"
-            "🤝 Partnership\n"
-            "⭐ Promozione Server\n"
-            "💼 Candidatura Staff"
+            "🎫 **Supporto Generale** — dubbi, problemi Discord o richieste generiche\n"
+            "🤝 **Partnership** — collaborazioni con server, community o creator\n"
+            "⭐ **Promozione Server** — richiesta promozione server RedM\n"
+            "💼 **Candidatura Staff** — richiesta per entrare nello staff"
         ),
         inline=False
     )
 
-    embed.set_footer(
-        text="RedM Italia Community • Ticket System"
+    embed.add_field(
+        name="Regole",
+        value=(
+            "• Non aprire ticket inutili\n"
+            "• Non aprire ticket duplicati\n"
+            "• Scrivi in modo chiaro e rispettoso\n"
+            "• Attendi risposta dallo staff senza spam"
+        ),
+        inline=False
     )
+
+    apply_brand(embed, interaction.guild)
 
     await interaction.channel.send(
         embed=embed,
@@ -1046,8 +1025,5 @@ async def setup_ticket(interaction):
         ephemeral=True
     )
 
-# =========================
-# RUN
-# =========================
 
 bot.run(DISCORD_TOKEN)
