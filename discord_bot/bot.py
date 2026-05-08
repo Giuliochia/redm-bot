@@ -369,8 +369,8 @@ async def generate_welcome_card(member):
 
     avatar_size = 145
 
-    avatar_center_x = 225
-    avatar_center_y = 180
+    avatar_center_x = 220
+    avatar_center_y = 158
 
     avatar_x = avatar_center_x - avatar_size // 2
     avatar_y = avatar_center_y - avatar_size // 2
@@ -432,18 +432,30 @@ async def generate_welcome_card(member):
 
     member_count = member.guild.member_count or len(member.guild.members)
 
-    member_font = get_font(34)
-
+    member_number_font = get_font(46)
     member_number_text = f"#{member_count}"
 
+    number_bbox = draw.textbbox(
+    (0, 0),
+    member_number_text,
+    font=member_number_font,
+    stroke_width=2
+)
+
+    number_width = number_bbox[2] - number_bbox[0]
+
+    number_center_x = 405
+    number_x = number_center_x - number_width // 2
+    number_y = 368
+
     draw.text(
-        (555, 342),
-        member_number_text,
-        font=member_font,
-        fill=(255, 255, 255, 255),
-        stroke_width=2,
-        stroke_fill=(0, 0, 0, 255)
-    )
+    (number_x, number_y),
+    member_number_text,
+    font=member_number_font,
+    fill=(255, 255, 255, 255),
+    stroke_width=3,
+    stroke_fill=(0, 0, 0, 255)
+)
 
     output = io.BytesIO()
     background.save(output, format="PNG")
