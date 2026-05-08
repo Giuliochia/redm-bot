@@ -850,13 +850,26 @@ async def on_ready():
         )
     )
 
-    synced = await bot.tree.sync(
-        guild=GUILD_OBJECT
-    )
+    try:
+        print("📌 Comandi locali registrati:")
+        for command in bot.tree.get_commands(guild=GUILD_OBJECT):
+            print(f"   /{command.name}")
 
-    print(
-        f"✅ Slash commands sincronizzati: {len(synced)}"
-    )
+        bot.tree.clear_commands(guild=GUILD_OBJECT)
+        await bot.tree.sync(guild=GUILD_OBJECT)
+
+        bot.tree.copy_global_to(guild=GUILD_OBJECT)
+
+        synced = await bot.tree.sync(guild=GUILD_OBJECT)
+
+        print(f"✅ Slash commands sincronizzati: {len(synced)}")
+
+        for command in synced:
+            print(f"   /{command.name}")
+
+    except Exception:
+        print("❌ ERRORE SYNC SLASH COMMANDS")
+        traceback.print_exc()
 
 
 @bot.event
