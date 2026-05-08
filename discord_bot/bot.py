@@ -5,7 +5,7 @@ import traceback
 import aiohttp
 import discord
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -363,70 +363,140 @@ async def generate_welcome_card(member):
     background = Image.open(WELCOME_BANNER).convert("RGBA")
     background = background.resize((1100, 450))
 
+    overlay = Image.new("RGBA", background.size, (0, 0, 0, 105))
+    background = Image.alpha_composite(background, overlay)
+
     draw = ImageDraw.Draw(background)
 
     avatar_bytes = await download_avatar_bytes(member)
 
+    avatar_size = 128
+    avatar_x = 486
+    avatar_y = 92
+
     if avatar_bytes:
         avatar_image = Image.open(io.BytesIO(avatar_bytes))
-        avatar = make_circle_avatar(avatar_image, 155)
+        avatar = make_circle_avatar(avatar_image, avatar_size)
 
-        avatar_x = 88
-        avatar_y = 145
+        glow_size = avatar_size + 34
+        glow = Image.new("RGBA", (glow_size, glow_size), (0, 0, 0, 0))
+        glow_draw = ImageDraw.Draw(glow)
 
-        border_size = 165
-        border = Image.new("RGBA", (border_size, border_size), (0, 0, 0, 0))
+        glow_draw.ellipse(
+            (8, 8, glow_size - 8, glow_size - 8),
+            fill=(180, 0, 0, 130)
+        )
+
+        glow = glow.filter(ImageFilter.GaussianBlur(12))
+
+        background.paste(
+            glow,
+            (avatar_x - 17, avatar_y - 17),
+            glow
+        )
+
+        border = Image.new("RGBA", (avatar_size + 10, avatar_size + 10), (0, 0, 0, 0))
         border_draw = ImageDraw.Draw(border)
+
         border_draw.ellipse(
-            (0, 0, border_size - 1, border_size - 1),
-            outline=(255, 255, 255, 230),
+            (0, 0, avatar_size + 9, avatar_size + 9),
+            outline=(210, 0, 0, 255),
             width=5
         )
 
-        background.paste(border, (avatar_x - 5, avatar_y - 5), border)
-        background.paste(avatar, (avatar_x, avatar_y), avatar)
+        border_draw.ellipse(
+            (7, 7, avatar_size + 2, avatar_size + 2),
+            outline=(255, 255, 255, 210),
+            width=2
+        )
 
-    title_font = get_font(48)
-    name_font = get_font(42)
-    small_font = get_font(27)
-    tiny_font = get_font(22)
+        background.paste(
+            border,
+            (avatar_x - 5, avatar_y - 5),
+            border
+        )
 
-    username = member.display_name
-    member_count = member.guild.member_count or len(member.guild.members)
+        background.paste(
+            avatar,
+            (avatar_x, avatar_y),
+            avatar
+        )
 
-    draw.text(
-        (300, 135),
+    title_font = get_font(38)
+    name_font = get_font(58)
+    brand_font = get_font(30)
+    subtitle_font = get_font(24)
+
+    username = member.display_name.upper()
+
+    max_name_width = 760
+
+    while True:
+        bbox = draw.textbbox((0, 0), username, font=name_font)
+        text_width = bbox[2] - bbox[0]
+
+        if text_width <= max_name_width or name_font.size <= 34:
+            break
+
+        name_font = get_font(name_font.size - 2)
+
+    def draw_centered_text(
+        y,
+        text,
+        font,
+        fill,
+        stroke_width=0,
+        stroke_fill=(0, 0, 0, 255)
+    ):
+        bbox = draw.textbbox(
+            (0, 0),
+            text,
+            font=font,
+            stroke_width=stroke_width
+        )
+
+        width = bbox[2] - bbox[0]
+        x = (1100 - width) // 2
+
+        draw.text(
+            (x, y),
+            text,
+            font=font,
+            fill=fill,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_fill
+        )
+
+    draw_centered_text(
+        232,
         "BENVENUTO",
-        font=title_font,
-        fill=(255, 230, 190, 255)
+        title_font,
+        (255, 210, 170, 255),
+        stroke_width=2
     )
 
-    draw.text(
-        (300, 190),
+    draw_centered_text(
+        276,
         username,
-        font=name_font,
-        fill=(255, 255, 255, 255)
+        name_font,
+        (255, 255, 255, 255),
+        stroke_width=3
     )
 
-    draw.text(
-        (300, 250),
-        f"Sei il membro #{member_count}",
-        font=small_font,
-        fill=(230, 230, 230, 255)
-    )
-
-    draw.text(
-        (300, 295),
-        "Completa la verifica e scegli il tuo ruolo",
-        font=tiny_font,
-        fill=(210, 210, 210, 255)
-    )
-
-    draw.text(
-        (300, 330),
+    draw_centered_text(
+        344,
         "RedM Italia Community",
-        font=tiny_font,
-        fill=(255, 180, 120, 255)
+        brand_font,
+        (215, 30, 30, 255),
+        stroke_width=2
+    )
+
+    draw_centered_text(
+        388,
+        "Completa la verifica e scegli il tuo ruolo",
+        subtitle_font,
+        (230, 230, 230, 245),
+        stroke_width=1
     )
 
     output = io.BytesIO()
