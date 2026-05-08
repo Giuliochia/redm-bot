@@ -856,9 +856,9 @@ async def on_ready():
             print(f"   /{command.name}")
 
         bot.tree.clear_commands(guild=GUILD_OBJECT)
+        await bot.tree.sync(guild=GUILD_OBJECT)
 
-        for cmd in bot.tree.get_commands():
-            bot.tree.add_command(cmd, guild=GUILD_OBJECT)
+        bot.tree.copy_global_to(guild=GUILD_OBJECT)
 
         synced = await bot.tree.sync(guild=GUILD_OBJECT)
 
