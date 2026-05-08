@@ -2,8 +2,10 @@ import os
 import io
 import asyncio
 import traceback
+import aiohttp
 import discord
 
+from PIL import Image, ImageDraw, ImageFont
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -35,6 +37,8 @@ ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 BANNER_VERIFICA = os.path.join(ASSETS_DIR, "banner_verifica.png")
 BANNER_RUOLI = os.path.join(ASSETS_DIR, "banner_ruoli.png")
 BANNER_DISCORD = os.path.join(ASSETS_DIR, "banner_discord.png")
+WELCOME_BANNER = os.path.join(ASSETS_DIR, "welcome_banner.png")
+LOGO_IMAGE = os.path.join(ASSETS_DIR, "logo.png")
 
 TICKET_STAFF_ROLE_KEYWORDS = [
     "founder",
@@ -118,12 +122,8 @@ bot = commands.Bot(
 )
 
 
-def asset_exists(path):
-    return os.path.exists(path)
-
-
 def make_file(path, filename):
-    if not asset_exists(path):
+    if not os.path.exists(path):
         print(f"⚠️ Asset non trovato: {path}")
         return None
 
@@ -314,6 +314,131 @@ async def generate_ticket_transcript(channel):
     )
 
 
+def get_font(size):
+    possible_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "arial.ttf"
+    ]
+
+    for path in possible_paths:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+
+    return ImageFont.load_default()
+
+
+async def download_avatar_bytes(member):
+    avatar_url = member.display_avatar.replace(size=256).url
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(avatar_url) as response:
+            if response.status != 200:
+                return None
+
+            return await response.read()
+
+
+def make_circle_avatar(avatar_image, size):
+    avatar_image = avatar_image.convert("RGBA")
+    avatar_image = avatar_image.resize((size, size))
+
+    mask = Image.new("L", (size, size), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.ellipse((0, 0, size, size), fill=255)
+
+    output = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    output.paste(avatar_image, (0, 0), mask)
+
+    return output
+
+
+async def generate_welcome_card(member):
+    if not os.path.exists(WELCOME_BANNER):
+        print("⚠️ welcome_banner.png non trovato.")
+        return None
+
+    background = Image.open(WELCOME_BANNER).convert("RGBA")
+    background = background.resize((1100, 450))
+
+    draw = ImageDraw.Draw(background)
+
+    avatar_bytes = await download_avatar_bytes(member)
+
+    if avatar_bytes:
+        avatar_image = Image.open(io.BytesIO(avatar_bytes))
+        avatar = make_circle_avatar(avatar_image, 155)
+
+        avatar_x = 88
+        avatar_y = 145
+
+        border_size = 165
+        border = Image.new("RGBA", (border_size, border_size), (0, 0, 0, 0))
+        border_draw = ImageDraw.Draw(border)
+        border_draw.ellipse(
+            (0, 0, border_size - 1, border_size - 1),
+            outline=(255, 255, 255, 230),
+            width=5
+        )
+
+        background.paste(border, (avatar_x - 5, avatar_y - 5), border)
+        background.paste(avatar, (avatar_x, avatar_y), avatar)
+
+    title_font = get_font(48)
+    name_font = get_font(42)
+    small_font = get_font(27)
+    tiny_font = get_font(22)
+
+    username = member.display_name
+    member_count = member.guild.member_count or len(member.guild.members)
+
+    draw.text(
+        (300, 135),
+        "BENVENUTO",
+        font=title_font,
+        fill=(255, 230, 190, 255)
+    )
+
+    draw.text(
+        (300, 190),
+        username,
+        font=name_font,
+        fill=(255, 255, 255, 255)
+    )
+
+    draw.text(
+        (300, 250),
+        f"Sei il membro #{member_count}",
+        font=small_font,
+        fill=(230, 230, 230, 255)
+    )
+
+    draw.text(
+        (300, 295),
+        "Completa la verifica e scegli il tuo ruolo",
+        font=tiny_font,
+        fill=(210, 210, 210, 255)
+    )
+
+    draw.text(
+        (300, 330),
+        "RedM Italia Community",
+        font=tiny_font,
+        fill=(255, 180, 120, 255)
+    )
+
+    output = io.BytesIO()
+    background.save(output, format="PNG")
+    output.seek(0)
+
+    return discord.File(
+        output,
+        filename="welcome_card.png"
+    )
+
+
 async def send_welcome_message(member):
     guild = member.guild
     channel = find_channel(guild, CHANNEL_WELCOME_KEYWORD)
@@ -322,57 +447,54 @@ async def send_welcome_message(member):
         print("⚠️ Canale benvenuti non trovato.")
         return
 
-    member_count = guild.member_count or len(guild.members)
-
     embed = discord.Embed(
-        title="🌅 Benvenuto nella RedM Italia Community",
+        title="🌅 Nuovo membro nella community",
         description=(
-            f"Benvenuto {member.mention}.\n\n"
-            "Sei appena entrato nella community italiana dedicata a **RedM**.\n"
-            "Completa la verifica per accedere a tutte le sezioni del server.\n\n"
-            "📌 **Primi passi consigliati**\n"
-            "• Leggi il regolamento\n"
-            "• Completa la verifica\n"
-            "• Scegli il tuo ruolo\n"
-            "• Partecipa alla community"
+            f"Benvenuto {member.mention} in **{BRAND_NAME}**.\n\n"
+            "Completa la verifica per accedere a tutte le sezioni del server."
         ),
         color=BRAND_COLOR
     )
 
     embed.add_field(
-        name="👥 Membri community",
-        value=f"Sei il membro numero **{member_count}**.",
-        inline=True
-    )
-
-    embed.add_field(
-        name="✅ Accesso",
-        value="Vai nel canale verifica e premi **Verificami**.",
-        inline=True
-    )
-
-    embed.set_author(
-        name=str(member),
-        icon_url=member.display_avatar.url
+        name="📌 Primi passi",
+        value=(
+            "• Leggi il regolamento\n"
+            "• Completa la verifica\n"
+            "• Scegli il tuo ruolo\n"
+            "• Partecipa alla community"
+        ),
+        inline=False
     )
 
     apply_brand(embed, guild)
 
-    file = make_file(BANNER_DISCORD, "banner_discord.png")
+    welcome_card = await generate_welcome_card(member)
 
-    if file:
-        embed.set_image(url="attachment://banner_discord.png")
+    if welcome_card:
+        embed.set_image(url="attachment://welcome_card.png")
 
         await channel.send(
-            content=f"👋 Benvenuto {member.mention}",
-            file=file,
+            content=f"🤠 Benvenuto {member.mention}!",
+            file=welcome_card,
             embed=embed
         )
     else:
-        await channel.send(
-            content=f"👋 Benvenuto {member.mention}",
-            embed=embed
-        )
+        file = make_file(BANNER_DISCORD, "banner_discord.png")
+
+        if file:
+            embed.set_image(url="attachment://banner_discord.png")
+
+            await channel.send(
+                content=f"🤠 Benvenuto {member.mention}!",
+                file=file,
+                embed=embed
+            )
+        else:
+            await channel.send(
+                content=f"🤠 Benvenuto {member.mention}!",
+                embed=embed
+            )
 
 
 class RolePickerView(discord.ui.View):
@@ -1180,10 +1302,10 @@ async def setup_welcome(interaction):
 
     apply_brand(embed, interaction.guild)
 
-    file = make_file(BANNER_DISCORD, "banner_discord.png")
+    file = make_file(WELCOME_BANNER, "welcome_banner.png")
 
     if file:
-        embed.set_image(url="attachment://banner_discord.png")
+        embed.set_image(url="attachment://welcome_banner.png")
 
         await interaction.channel.send(
             file=file,
