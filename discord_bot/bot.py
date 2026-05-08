@@ -15,7 +15,9 @@ GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 
 ROLE_VERIFIED_KEYWORD = "verified"
 ROLE_NEW_KEYWORD = "nuovo arrivato"
+
 CHANNEL_LOG_KEYWORD = "admin-logs"
+CHANNEL_WELCOME_KEYWORD = "benvenuti"
 
 TICKET_CATEGORY_NAME = "🎫 | TICKET"
 TICKET_CATEGORY_KEYWORD = "ticket"
@@ -318,6 +320,66 @@ async def generate_ticket_transcript(channel):
         transcript_bytes,
         filename=f"{channel.name}-transcript.txt"
     )
+
+
+async def send_welcome_message(member):
+    guild = member.guild
+    channel = find_channel(guild, CHANNEL_WELCOME_KEYWORD)
+
+    if not channel:
+        return
+
+    member_count = guild.member_count or len(guild.members)
+
+    embed = discord.Embed(
+        title="🌅 Benvenuto nella RedM Italia Community",
+        description=(
+            f"Benvenuto {member.mention}.\n\n"
+            "Sei appena entrato nella community italiana dedicata a **RedM**.\n"
+            "Completa la verifica per accedere a tutte le sezioni del server.\n\n"
+            "📌 **Primi passi consigliati**\n"
+            "• Leggi il regolamento\n"
+            "• Completa la verifica\n"
+            "• Scegli il tuo ruolo\n"
+            "• Presentati e partecipa alla community"
+        ),
+        color=BRAND_COLOR
+    )
+
+    embed.add_field(
+        name="👥 Membri community",
+        value=f"Sei il membro numero **{member_count}**.",
+        inline=True
+    )
+
+    embed.add_field(
+        name="✅ Accesso",
+        value="Vai nel canale verifica e premi **Verificami**.",
+        inline=True
+    )
+
+    embed.set_author(
+        name=str(member),
+        icon_url=member.display_avatar.url
+    )
+
+    apply_brand(embed, guild)
+
+    file = make_file(BANNER_DISCORD, "banner_discord.png")
+
+    if file:
+        embed.set_image(url="attachment://banner_discord.png")
+
+        await channel.send(
+            content=f"👋 Benvenuto {member.mention}",
+            file=file,
+            embed=embed
+        )
+    else:
+        await channel.send(
+            content=f"👋 Benvenuto {member.mention}",
+            embed=embed
+        )
 
 
 class RolePickerView(discord.ui.View):
@@ -811,6 +873,8 @@ async def on_member_join(member):
                 reason="Nuovo membro entrato"
             )
 
+        await send_welcome_message(member)
+
         await send_admin_log(
             member.guild,
             "👋 Nuovo membro",
@@ -1022,6 +1086,73 @@ async def setup_ticket(interaction):
 
     await interaction.response.send_message(
         "✅ Pannello ticket pubblicato.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(
+    name="setup_welcome",
+    description="Invia il pannello welcome nel canale corrente",
+    guild=GUILD_OBJECT
+)
+async def setup_welcome(interaction):
+    member = interaction.user
+
+    if not isinstance(member, discord.Member):
+        return
+
+    if not member_can_use_setup_commands(member):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi.",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title="🌅 Benvenuto nella RedM Italia Community",
+        description=(
+            "Questa è la community italiana dedicata a **RedM**.\n\n"
+            "Qui puoi trovare player, developer, mapper, UI designer e creator.\n"
+            "Completa la verifica, scegli il tuo ruolo e inizia a partecipare."
+        ),
+        color=BRAND_COLOR
+    )
+
+    embed.add_field(
+        name="📌 Come iniziare",
+        value=(
+            "1. Leggi il regolamento\n"
+            "2. Completa la verifica\n"
+            "3. Scegli il tuo ruolo\n"
+            "4. Partecipa alla community"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🤠 Spirito community",
+        value="Rispetto, passione e collaborazione.",
+        inline=False
+    )
+
+    apply_brand(embed, interaction.guild)
+
+    file = make_file(BANNER_DISCORD, "banner_discord.png")
+
+    if file:
+        embed.set_image(url="attachment://banner_discord.png")
+
+        await interaction.channel.send(
+            file=file,
+            embed=embed
+        )
+    else:
+        await interaction.channel.send(
+            embed=embed
+        )
+
+    await interaction.response.send_message(
+        "✅ Pannello welcome pubblicato.",
         ephemeral=True
     )
 
