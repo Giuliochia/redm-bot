@@ -1,6 +1,5 @@
 import os
 import io
-import time
 import asyncio
 import traceback
 import discord
@@ -13,6 +12,15 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
 
+GUILD_OBJECT = discord.Object(id=GUILD_ID)
+
+BRAND_NAME = "RedM Italia Community"
+BRAND_COLOR = 0x8B0000
+SUCCESS_COLOR = 0x2ECC71
+INFO_COLOR = 0x3498DB
+DANGER_COLOR = 0xE74C3C
+WARNING_COLOR = 0xF1C40F
+
 ROLE_VERIFIED_KEYWORD = "verified"
 ROLE_NEW_KEYWORD = "nuovo arrivato"
 
@@ -22,19 +30,11 @@ CHANNEL_WELCOME_KEYWORD = "benvenuti"
 TICKET_CATEGORY_NAME = "🎫 | TICKET"
 TICKET_CATEGORY_KEYWORD = "ticket"
 
-BRAND_NAME = "RedM Italia Community"
-BRAND_COLOR = 0x8B0000
-SUCCESS_COLOR = 0x2ECC71
-INFO_COLOR = 0x3498DB
-DANGER_COLOR = 0xE74C3C
-WARNING_COLOR = 0xF1C40F
-
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
 BANNER_VERIFICA = os.path.join(ASSETS_DIR, "banner_verifica.png")
 BANNER_RUOLI = os.path.join(ASSETS_DIR, "banner_ruoli.png")
 BANNER_DISCORD = os.path.join(ASSETS_DIR, "banner_discord.png")
-LOGO_IMAGE = os.path.join(ASSETS_DIR, "logo.png")
 
 TICKET_STAFF_ROLE_KEYWORDS = [
     "founder",
@@ -49,8 +49,6 @@ SETUP_ALLOWED_ROLE_KEYWORDS = [
     "moderatore",
     "helper"
 ]
-
-GUILD_OBJECT = discord.Object(id=GUILD_ID)
 
 ticket_claims = {}
 
@@ -126,6 +124,7 @@ def asset_exists(path):
 
 def make_file(path, filename):
     if not asset_exists(path):
+        print(f"⚠️ Asset non trovato: {path}")
         return None
 
     return discord.File(path, filename=filename)
@@ -204,10 +203,7 @@ def member_is_verified(member):
 
 
 def member_is_ticket_staff(member):
-    staff_roles = find_roles(
-        member.guild,
-        TICKET_STAFF_ROLE_KEYWORDS
-    )
+    staff_roles = find_roles(member.guild, TICKET_STAFF_ROLE_KEYWORDS)
 
     if member.guild_permissions.manage_channels:
         return True
@@ -250,16 +246,14 @@ def get_ticket_owner_id(channel):
 
 
 async def get_or_create_ticket_category(guild):
-    category = find_category(
-        guild,
-        TICKET_CATEGORY_KEYWORD
-    )
+    category = find_category(guild, TICKET_CATEGORY_KEYWORD)
 
     if category:
         return category
 
     return await guild.create_category(
-        name=TICKET_CATEGORY_NAME
+        name=TICKET_CATEGORY_NAME,
+        reason="Categoria ticket creata automaticamente"
     )
 
 
@@ -270,12 +264,10 @@ async def send_admin_log(
     color=INFO_COLOR,
     file=None
 ):
-    channel = find_channel(
-        guild,
-        CHANNEL_LOG_KEYWORD
-    )
+    channel = find_channel(guild, CHANNEL_LOG_KEYWORD)
 
     if not channel:
+        print("⚠️ Canale admin-logs non trovato.")
         return
 
     embed = discord.Embed(
@@ -327,6 +319,7 @@ async def send_welcome_message(member):
     channel = find_channel(guild, CHANNEL_WELCOME_KEYWORD)
 
     if not channel:
+        print("⚠️ Canale benvenuti non trovato.")
         return
 
     member_count = guild.member_count or len(guild.members)
@@ -341,7 +334,7 @@ async def send_welcome_message(member):
             "• Leggi il regolamento\n"
             "• Completa la verifica\n"
             "• Scegli il tuo ruolo\n"
-            "• Presentati e partecipa alla community"
+            "• Partecipa alla community"
         ),
         color=BRAND_COLOR
     )
@@ -409,7 +402,10 @@ class RolePickerView(discord.ui.View):
 
         try:
             if role in member.roles:
-                await member.remove_roles(role)
+                await member.remove_roles(
+                    role,
+                    reason="Ruolo rimosso tramite role picker"
+                )
 
                 await interaction.response.send_message(
                     f"❌ Ruolo rimosso: {role_data['emoji']} **{role.name}**",
@@ -417,15 +413,31 @@ class RolePickerView(discord.ui.View):
                 )
 
             else:
-                await member.add_roles(role)
+                await member.add_roles(
+                    role,
+                    reason="Ruolo assegnato tramite role picker"
+                )
 
                 await interaction.response.send_message(
                     f"✅ Ruolo assegnato: {role_data['emoji']} **{role.name}**",
                     ephemeral=True
                 )
 
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ Errore permessi: il bot non può assegnare questo ruolo.",
+                ephemeral=True
+            )
+
         except Exception:
+            print("❌ ERRORE ROLE PICKER")
             traceback.print_exc()
+
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ Errore imprevisto durante l’assegnazione del ruolo.",
+                    ephemeral=True
+                )
 
     @discord.ui.button(
         label="Player",
@@ -460,7 +472,7 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="redm_role_ui_designer"
     )
-    async def ui_button(self, interaction, button):
+    async def ui_designer_button(self, interaction, button):
         await self.toggle_role(interaction, "ui_designer")
 
     @discord.ui.button(
@@ -490,15 +502,8 @@ class VerifyView(discord.ui.View):
         if not guild or not isinstance(member, discord.Member):
             return
 
-        verified_role = find_role(
-            guild,
-            ROLE_VERIFIED_KEYWORD
-        )
-
-        new_role = find_role(
-            guild,
-            ROLE_NEW_KEYWORD
-        )
+        verified_role = find_role(guild, ROLE_VERIFIED_KEYWORD)
+        new_role = find_role(guild, ROLE_NEW_KEYWORD)
 
         if not verified_role:
             await interaction.response.send_message(
@@ -507,41 +512,58 @@ class VerifyView(discord.ui.View):
             )
             return
 
-        if verified_role not in member.roles:
-            await member.add_roles(
-                verified_role,
-                reason="Verifica completata"
+        try:
+            if verified_role not in member.roles:
+                await member.add_roles(
+                    verified_role,
+                    reason="Verifica completata"
+                )
+
+            if new_role and new_role in member.roles:
+                await member.remove_roles(
+                    new_role,
+                    reason="Utente verificato"
+                )
+
+            embed = discord.Embed(
+                title="✅ Verifica completata",
+                description=(
+                    f"Benvenuto in **{BRAND_NAME}**, {member.mention}.\n\n"
+                    "Ora hai accesso alla community.\n"
+                    "Puoi scegliere il ruolo che ti rappresenta usando il pannello ruoli."
+                ),
+                color=SUCCESS_COLOR
             )
 
-        if new_role and new_role in member.roles:
-            await member.remove_roles(
-                new_role,
-                reason="Utente verificato"
+            apply_brand(embed, guild)
+
+            await interaction.response.send_message(
+                embed=embed,
+                ephemeral=True
             )
 
-        embed = discord.Embed(
-            title="✅ Verifica completata",
-            description=(
-                f"Benvenuto in **{BRAND_NAME}**, {member.mention}.\n\n"
-                "Ora hai accesso alla community.\n"
-                "Puoi scegliere il ruolo che ti rappresenta usando il pannello ruoli."
-            ),
-            color=SUCCESS_COLOR
-        )
+            await send_admin_log(
+                guild,
+                "✅ Utente verificato",
+                f"Utente: {member.mention}\nID: `{member.id}`",
+                color=SUCCESS_COLOR
+            )
 
-        apply_brand(embed, guild)
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ Errore permessi: il bot non può assegnare il ruolo Verified.",
+                ephemeral=True
+            )
 
-        await interaction.response.send_message(
-            embed=embed,
-            ephemeral=True
-        )
+        except Exception:
+            print("❌ ERRORE VERIFICA")
+            traceback.print_exc()
 
-        await send_admin_log(
-            guild,
-            "✅ Utente verificato",
-            f"Utente: {member.mention}\nID: `{member.id}`",
-            color=SUCCESS_COLOR
-        )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ Errore imprevisto durante la verifica.",
+                    ephemeral=True
+                )
 
 
 class TicketControlView(discord.ui.View):
@@ -555,13 +577,21 @@ class TicketControlView(discord.ui.View):
         custom_id="redm_ticket_claim"
     )
     async def claim_ticket(self, interaction, button):
+        guild = interaction.guild
         member = interaction.user
         channel = interaction.channel
 
-        if not isinstance(member, discord.Member):
+        if not guild or not isinstance(member, discord.Member):
             return
 
         if not isinstance(channel, discord.TextChannel):
+            return
+
+        if not is_ticket_channel(channel):
+            await interaction.response.send_message(
+                "❌ Questo canale non sembra essere un ticket valido.",
+                ephemeral=True
+            )
             return
 
         if not member_is_ticket_staff(member):
@@ -574,8 +604,11 @@ class TicketControlView(discord.ui.View):
         claimed_by = ticket_claims.get(channel.id)
 
         if claimed_by:
+            claimed_member = guild.get_member(claimed_by)
+            claimed_text = claimed_member.mention if claimed_member else f"`{claimed_by}`"
+
             await interaction.response.send_message(
-                "⚠️ Questo ticket è già stato preso in carico.",
+                f"⚠️ Questo ticket è già stato preso in carico da {claimed_text}.",
                 ephemeral=True
             )
             return
@@ -588,13 +621,13 @@ class TicketControlView(discord.ui.View):
             color=INFO_COLOR
         )
 
-        apply_brand(embed, member.guild)
+        apply_brand(embed, guild)
 
         await channel.send(embed=embed)
 
         await send_admin_log(
-            member.guild,
-            "📌 Ticket claimato",
+            guild,
+            "📌 Ticket preso in carico",
             f"Staff: {member.mention}\nCanale: `{channel.name}`",
             color=INFO_COLOR
         )
@@ -615,13 +648,17 @@ class TicketControlView(discord.ui.View):
         member = interaction.user
         channel = interaction.channel
 
-        if not guild:
-            return
-
-        if not isinstance(member, discord.Member):
+        if not guild or not isinstance(member, discord.Member):
             return
 
         if not isinstance(channel, discord.TextChannel):
+            return
+
+        if not is_ticket_channel(channel):
+            await interaction.response.send_message(
+                "❌ Questo canale non sembra essere un ticket valido.",
+                ephemeral=True
+            )
             return
 
         owner_id = get_ticket_owner_id(channel)
@@ -657,15 +694,20 @@ class TicketControlView(discord.ui.View):
             )
 
         except Exception:
+            print("⚠️ ERRORE TRANSCRIPT/LOG CHIUSURA")
             traceback.print_exc()
 
         await asyncio.sleep(5)
 
         try:
             ticket_claims.pop(channel.id, None)
-            await channel.delete()
+
+            await channel.delete(
+                reason=f"Ticket chiuso da {member}"
+            )
 
         except Exception:
+            print("❌ ERRORE ELIMINAZIONE TICKET")
             traceback.print_exc()
 
 
@@ -714,10 +756,8 @@ class TicketSelect(discord.ui.Select):
                     return
 
             category = await get_or_create_ticket_category(guild)
-            staff_roles = find_roles(
-                guild,
-                TICKET_STAFF_ROLE_KEYWORDS
-            )
+            staff_roles = find_roles(guild, TICKET_STAFF_ROLE_KEYWORDS)
+            bot_member = guild.me
 
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(
@@ -741,8 +781,6 @@ class TicketSelect(discord.ui.Select):
                     attach_files=True,
                     embed_links=True
                 )
-
-            bot_member = guild.me
 
             if bot_member:
                 overwrites[bot_member] = discord.PermissionOverwrite(
@@ -817,6 +855,7 @@ class TicketSelect(discord.ui.Select):
             )
 
         except Exception:
+            print("❌ ERRORE APERTURA TICKET")
             traceback.print_exc()
 
             if not interaction.response.is_done():
@@ -852,11 +891,9 @@ async def on_ready():
 
     try:
         print("📌 Comandi locali registrati:")
-        for command in bot.tree.get_commands(guild=GUILD_OBJECT):
-            print(f"   /{command.name}")
 
-        bot.tree.clear_commands(guild=GUILD_OBJECT)
-        await bot.tree.sync(guild=GUILD_OBJECT)
+        for command in bot.tree.get_commands():
+            print(f"   /{command.name}")
 
         bot.tree.copy_global_to(guild=GUILD_OBJECT)
 
@@ -875,10 +912,7 @@ async def on_ready():
 @bot.event
 async def on_member_join(member):
     try:
-        new_role = find_role(
-            member.guild,
-            ROLE_NEW_KEYWORD
-        )
+        new_role = find_role(member.guild, ROLE_NEW_KEYWORD)
 
         if new_role:
             await member.add_roles(
@@ -899,13 +933,13 @@ async def on_member_join(member):
         )
 
     except Exception:
+        print("❌ ERRORE MEMBER JOIN")
         traceback.print_exc()
 
 
 @bot.tree.command(
     name="ping",
-    description="Test bot",
-    guild=GUILD_OBJECT
+    description="Test bot"
 )
 async def ping(interaction):
     await interaction.response.send_message(
@@ -916,8 +950,7 @@ async def ping(interaction):
 
 @bot.tree.command(
     name="setup_verifica",
-    description="Invia pannello verifica",
-    guild=GUILD_OBJECT
+    description="Invia pannello verifica"
 )
 async def setup_verifica(interaction):
     member = interaction.user
@@ -978,8 +1011,7 @@ async def setup_verifica(interaction):
 
 @bot.tree.command(
     name="ruoli",
-    description="Invia pannello ruoli",
-    guild=GUILD_OBJECT
+    description="Invia pannello ruoli"
 )
 async def ruoli(interaction):
     member = interaction.user
@@ -1042,8 +1074,7 @@ async def ruoli(interaction):
 
 @bot.tree.command(
     name="setup_ticket",
-    description="Invia pannello ticket",
-    guild=GUILD_OBJECT
+    description="Invia pannello ticket"
 )
 async def setup_ticket(interaction):
     member = interaction.user
@@ -1105,8 +1136,7 @@ async def setup_ticket(interaction):
 
 @bot.tree.command(
     name="setup_welcome",
-    description="Invia il pannello welcome nel canale corrente",
-    guild=GUILD_OBJECT
+    description="Invia pannello welcome"
 )
 async def setup_welcome(interaction):
     member = interaction.user
