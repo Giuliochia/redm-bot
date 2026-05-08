@@ -3,7 +3,6 @@ import time
 import asyncio
 import discord
 from discord.ext import commands
-from discord import app_commands
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,6 +18,13 @@ TICKET_CATEGORY_NAME = "🎫 | TICKET"
 TICKET_CATEGORY_KEYWORD = "ticket"
 
 TICKET_STAFF_ROLE_KEYWORDS = [
+    "founder",
+    "admin",
+    "moderatore",
+    "helper"
+]
+
+SETUP_ALLOWED_ROLE_KEYWORDS = [
     "founder",
     "admin",
     "moderatore",
@@ -242,6 +248,22 @@ def member_is_ticket_staff(member: discord.Member):
         return True
 
     return any(role in member.roles for role in staff_roles)
+
+
+def member_can_use_setup_commands(member: discord.Member):
+    if member.guild_permissions.administrator:
+        return True
+
+    if member.guild_permissions.manage_guild:
+        return True
+
+    for role in member.roles:
+        role_name = role.name.lower()
+
+        if any(keyword in role_name for keyword in SETUP_ALLOWED_ROLE_KEYWORDS):
+            return True
+
+    return False
 
 
 def member_is_verified(member: discord.Member):
@@ -915,8 +937,14 @@ async def ping(interaction: discord.Interaction):
     description="Invia il pannello verifica nel canale corrente",
     guild=GUILD_OBJECT
 )
-@app_commands.checks.has_permissions(manage_guild=True)
 async def setup_verifica(interaction: discord.Interaction):
+    if not isinstance(interaction.user, discord.Member) or not member_can_use_setup_commands(interaction.user):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi per usare questo comando.",
+            ephemeral=True
+        )
+        return
+
     embed = discord.Embed(
         title="✅ Verifica Community",
         description=(
@@ -944,24 +972,19 @@ async def setup_verifica(interaction: discord.Interaction):
     )
 
 
-@setup_verifica.error
-async def setup_verifica_error(
-    interaction: discord.Interaction,
-    error
-):
-    await interaction.response.send_message(
-        "❌ Non hai i permessi per usare questo comando.",
-        ephemeral=True
-    )
-
-
 @bot.tree.command(
     name="ruoli",
     description="Invia il pannello selezione ruoli nel canale corrente",
     guild=GUILD_OBJECT
 )
-@app_commands.checks.has_permissions(manage_guild=True)
 async def ruoli(interaction: discord.Interaction):
+    if not isinstance(interaction.user, discord.Member) or not member_can_use_setup_commands(interaction.user):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi per usare questo comando.",
+            ephemeral=True
+        )
+        return
+
     embed = discord.Embed(
         title="🎭 Scegli il tuo ruolo",
         description=(
@@ -997,24 +1020,19 @@ async def ruoli(interaction: discord.Interaction):
     )
 
 
-@ruoli.error
-async def ruoli_error(
-    interaction: discord.Interaction,
-    error
-):
-    await interaction.response.send_message(
-        "❌ Non hai i permessi per usare questo comando.",
-        ephemeral=True
-    )
-
-
 @bot.tree.command(
     name="setup_ticket",
     description="Invia il pannello ticket nel canale corrente",
     guild=GUILD_OBJECT
 )
-@app_commands.checks.has_permissions(manage_guild=True)
 async def setup_ticket(interaction: discord.Interaction):
+    if not isinstance(interaction.user, discord.Member) or not member_can_use_setup_commands(interaction.user):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi per usare questo comando.",
+            ephemeral=True
+        )
+        return
+
     embed = discord.Embed(
         title="🎫 Centro Supporto RedM Italia",
         description=(
@@ -1057,17 +1075,6 @@ async def setup_ticket(interaction: discord.Interaction):
 
     await interaction.response.send_message(
         "✅ Pannello ticket pubblicato correttamente.",
-        ephemeral=True
-    )
-
-
-@setup_ticket.error
-async def setup_ticket_error(
-    interaction: discord.Interaction,
-    error
-):
-    await interaction.response.send_message(
-        "❌ Non hai i permessi per usare questo comando.",
         ephemeral=True
     )
 
