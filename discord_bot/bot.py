@@ -1,6 +1,7 @@
 import os
 import time
 import asyncio
+import traceback
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -403,8 +404,10 @@ class TicketCloseView(discord.ui.View):
             await channel.delete(
                 reason=f"Ticket chiuso da {member}"
             )
-        except Exception as error:
-            print(f"Errore chiusura ticket: {error}")
+
+        except Exception:
+            print("❌ ERRORE ELIMINAZIONE TICKET")
+            traceback.print_exc()
 
 
 class TicketSelect(discord.ui.Select):
@@ -475,6 +478,7 @@ class TicketSelect(discord.ui.Select):
 
         if remaining > 0:
             minutes = max(1, remaining // 60)
+
             await interaction.response.send_message(
                 f"⏳ Devi attendere circa {minutes} minuto/i prima di aprire un altro ticket.",
                 ephemeral=True
@@ -609,6 +613,7 @@ class TicketSelect(discord.ui.Select):
                 "❌ Errore imprevisto durante la creazione del ticket.",
                 ephemeral=True
             )
+
             print(f"Errore apertura ticket: {error}")
 
 
@@ -646,58 +651,29 @@ class RolePickerView(discord.ui.View):
 
         if not role:
             await interaction.response.send_message(
-                f"❌ Errore: ruolo `{role_data['label']}` non trovato. Contatta lo staff.",
+                f"❌ Errore: ruolo `{role_data['label']}` non trovato.",
                 ephemeral=True
             )
             return
 
         try:
             if role in member.roles:
-                await member.remove_roles(
-                    role,
-                    reason="Ruolo rimosso tramite role picker"
-                )
+                await member.remove_roles(role)
 
                 await interaction.response.send_message(
-                    f"❌ Ruolo rimosso: {role_data['emoji']} **{role.name}**",
+                    f"❌ Ruolo rimosso: {role.name}",
                     ephemeral=True
-                )
-
-                await send_admin_log(
-                    guild,
-                    "🎭 Ruolo rimosso",
-                    f"Utente: {member.mention}\nRuolo: `{role.name}`\nID: `{member.id}`",
-                    color=0xe74c3c
                 )
 
             else:
-                await member.add_roles(
-                    role,
-                    reason="Ruolo assegnato tramite role picker"
-                )
+                await member.add_roles(role)
 
                 await interaction.response.send_message(
-                    f"✅ Ruolo assegnato: {role_data['emoji']} **{role.name}**",
+                    f"✅ Ruolo assegnato: {role.name}",
                     ephemeral=True
                 )
 
-                await send_admin_log(
-                    guild,
-                    "🎭 Ruolo assegnato",
-                    f"Utente: {member.mention}\nRuolo: `{role.name}`\nID: `{member.id}`"
-                )
-
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                "❌ Errore permessi: il bot non può assegnare questo ruolo. Controlla l’ordine dei ruoli.",
-                ephemeral=True
-            )
-
         except Exception as error:
-            await interaction.response.send_message(
-                "❌ Errore imprevisto durante l’assegnazione del ruolo.",
-                ephemeral=True
-            )
             print(f"Errore role picker: {error}")
 
     @discord.ui.button(
@@ -706,11 +682,7 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="redm_role_player"
     )
-    async def player_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
+    async def player_button(self, interaction, button):
         await self.toggle_role(interaction, "player")
 
     @discord.ui.button(
@@ -719,11 +691,7 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="redm_role_developer"
     )
-    async def developer_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
+    async def developer_button(self, interaction, button):
         await self.toggle_role(interaction, "developer")
 
     @discord.ui.button(
@@ -732,11 +700,7 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="redm_role_mapper"
     )
-    async def mapper_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
+    async def mapper_button(self, interaction, button):
         await self.toggle_role(interaction, "mapper")
 
     @discord.ui.button(
@@ -745,11 +709,7 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="redm_role_ui_designer"
     )
-    async def ui_designer_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
+    async def ui_designer_button(self, interaction, button):
         await self.toggle_role(interaction, "ui_designer")
 
     @discord.ui.button(
@@ -758,11 +718,7 @@ class RolePickerView(discord.ui.View):
         style=discord.ButtonStyle.primary,
         custom_id="redm_role_creator"
     )
-    async def creator_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
+    async def creator_button(self, interaction, button):
         await self.toggle_role(interaction, "creator")
 
 
@@ -776,67 +732,34 @@ class VerifyView(discord.ui.View):
         style=discord.ButtonStyle.success,
         custom_id="redm_verify_button"
     )
-    async def verify_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button
-    ):
+    async def verify_button(self, interaction, button):
         guild = interaction.guild
         member = interaction.user
 
         if not guild or not isinstance(member, discord.Member):
-            await interaction.response.send_message(
-                "❌ Errore: impossibile completare la verifica.",
-                ephemeral=True
-            )
             return
 
         verified_role = find_role(guild, ROLE_VERIFIED_KEYWORD)
         new_role = find_role(guild, ROLE_NEW_KEYWORD)
 
         if not verified_role:
-            await interaction.response.send_message(
-                "❌ Errore: ruolo Verified non trovato. Contatta lo staff.",
-                ephemeral=True
-            )
             return
 
         try:
             if verified_role not in member.roles:
-                await member.add_roles(
-                    verified_role,
-                    reason="Verifica completata tramite RedM Italia Bot"
-                )
+                await member.add_roles(verified_role)
 
             if new_role and new_role in member.roles:
-                await member.remove_roles(
-                    new_role,
-                    reason="Utente verificato"
-                )
+                await member.remove_roles(new_role)
 
             embed = discord.Embed(
                 title="✅ Verifica completata",
                 description=(
-                    f"Benvenuto in **RedM Italia Community**, {member.mention}.\n\n"
-                    "Ora scegli il ruolo che ti rappresenta nella community.\n"
-                    "Puoi selezionare anche più ruoli se ti rispecchiano."
+                    f"Benvenuto {member.mention}\n\n"
+                    "Ora scegli il tuo ruolo."
                 ),
                 color=0x2ecc71
             )
-
-            embed.add_field(
-                name="Ruoli disponibili",
-                value=(
-                    "🎮 Player\n"
-                    "💻 Developer\n"
-                    "🗺️ Mapper\n"
-                    "🎨 UI Designer\n"
-                    "🎥 Creator"
-                ),
-                inline=False
-            )
-
-            embed.set_footer(text="RedM Italia Community • Selezione ruoli")
 
             await interaction.response.send_message(
                 embed=embed,
@@ -844,23 +767,7 @@ class VerifyView(discord.ui.View):
                 ephemeral=True
             )
 
-            await send_admin_log(
-                guild,
-                "✅ Utente verificato",
-                f"Utente: {member.mention}\nID: `{member.id}`"
-            )
-
-        except discord.Forbidden:
-            await interaction.response.send_message(
-                "❌ Errore permessi: il bot non può assegnare il ruolo Verified. Controlla l’ordine dei ruoli.",
-                ephemeral=True
-            )
-
         except Exception as error:
-            await interaction.response.send_message(
-                "❌ Errore imprevisto durante la verifica. Contatta lo staff.",
-                ephemeral=True
-            )
             print(f"Errore verifica: {error}")
 
 
@@ -875,49 +782,28 @@ async def on_ready():
     bot.add_view(TicketPanelView())
     bot.add_view(TicketCloseView())
 
-    await bot.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.watching,
-            name="RedM Italia Community"
-        )
-    )
-
     try:
-        bot.tree.clear_commands(guild=None)
-        await bot.tree.sync()
-
         synced = await bot.tree.sync(guild=GUILD_OBJECT)
 
-        print(f"✅ Slash commands GUILD sincronizzati: {len(synced)}")
+        print(f"✅ Slash commands sincronizzati: {len(synced)}")
 
         for command in synced:
-            print(f"   /{command.name}")
+            print(f"/{command.name}")
 
     except Exception as e:
-        print(f"❌ Errore sync slash commands: {e}")
+        print(f"❌ Errore sync: {e}")
 
 
 @bot.event
-async def on_member_join(member: discord.Member):
+async def on_member_join(member):
     try:
         new_role = find_role(member.guild, ROLE_NEW_KEYWORD)
 
         if new_role:
-            await member.add_roles(
-                new_role,
-                reason="Nuovo membro entrato nel server"
-            )
-
-        await send_admin_log(
-            member.guild,
-            "👋 Nuovo membro",
-            f"Utente: {member.mention}\nID: `{member.id}`\nRuolo assegnato: `{new_role.name if new_role else 'non trovato'}`"
-        )
-
-        print(f"✅ Nuovo utente: {member}")
+            await member.add_roles(new_role)
 
     except Exception as e:
-        print(f"❌ Errore on_member_join: {e}")
+        print(f"❌ Errore join: {e}")
 
 
 @bot.tree.command(
@@ -925,41 +811,31 @@ async def on_member_join(member: discord.Member):
     description="Test bot",
     guild=GUILD_OBJECT
 )
-async def ping(interaction: discord.Interaction):
+async def ping(interaction):
     await interaction.response.send_message(
-        "🏓 Pong! Bot online.",
+        "🏓 Pong!",
         ephemeral=True
     )
 
 
 @bot.tree.command(
     name="setup_verifica",
-    description="Invia il pannello verifica nel canale corrente",
+    description="Invia pannello verifica",
     guild=GUILD_OBJECT
 )
-async def setup_verifica(interaction: discord.Interaction):
+async def setup_verifica(interaction):
     if not isinstance(interaction.user, discord.Member) or not member_can_use_setup_commands(interaction.user):
         await interaction.response.send_message(
-            "❌ Non hai i permessi per usare questo comando.",
+            "❌ Non hai i permessi.",
             ephemeral=True
         )
         return
 
     embed = discord.Embed(
         title="✅ Verifica Community",
-        description=(
-            "Benvenuto in **RedM Italia Community**.\n\n"
-            "Per accedere alla community completa premi il pulsante qui sotto.\n\n"
-            "Dopo la verifica potrai:\n"
-            "• accedere ai canali principali\n"
-            "• scegliere il tuo ruolo\n"
-            "• partecipare alla community\n\n"
-            "⚠️ Rispetta il regolamento e mantieni un comportamento corretto."
-        ),
+        description="Premi il pulsante qui sotto per verificarti.",
         color=0x2ecc71
     )
-
-    embed.set_footer(text="RedM Italia Community • Sistema verifica ufficiale")
 
     await interaction.channel.send(
         embed=embed,
@@ -967,47 +843,29 @@ async def setup_verifica(interaction: discord.Interaction):
     )
 
     await interaction.response.send_message(
-        "✅ Pannello verifica pubblicato correttamente.",
+        "✅ Pannello verifica pubblicato.",
         ephemeral=True
     )
 
 
 @bot.tree.command(
     name="ruoli",
-    description="Invia il pannello selezione ruoli nel canale corrente",
+    description="Invia pannello ruoli",
     guild=GUILD_OBJECT
 )
-async def ruoli(interaction: discord.Interaction):
+async def ruoli(interaction):
     if not isinstance(interaction.user, discord.Member) or not member_can_use_setup_commands(interaction.user):
         await interaction.response.send_message(
-            "❌ Non hai i permessi per usare questo comando.",
+            "❌ Non hai i permessi.",
             ephemeral=True
         )
         return
 
     embed = discord.Embed(
         title="🎭 Scegli il tuo ruolo",
-        description=(
-            "Seleziona il ruolo che ti rappresenta nella community.\n\n"
-            "Puoi scegliere anche più ruoli.\n"
-            "Se clicchi di nuovo su un ruolo già assegnato, verrà rimosso."
-        ),
+        description="Seleziona i ruoli che ti rappresentano.",
         color=0x3498db
     )
-
-    embed.add_field(
-        name="Ruoli disponibili",
-        value=(
-            "🎮 **Player** — giochi sui server RedM\n"
-            "💻 **Developer** — sviluppi script, sistemi o framework\n"
-            "🗺️ **Mapper** — crei mappe, MLO o ambientazioni\n"
-            "🎨 **UI Designer** — lavori su UI, grafiche o UX\n"
-            "🎥 **Creator** — crei contenuti, clip o live"
-        ),
-        inline=False
-    )
-
-    embed.set_footer(text="RedM Italia Community • Role picker ufficiale")
 
     await interaction.channel.send(
         embed=embed,
@@ -1015,20 +873,20 @@ async def ruoli(interaction: discord.Interaction):
     )
 
     await interaction.response.send_message(
-        "✅ Pannello ruoli pubblicato correttamente.",
+        "✅ Pannello ruoli pubblicato.",
         ephemeral=True
     )
 
 
 @bot.tree.command(
     name="setup_ticket",
-    description="Invia il pannello ticket nel canale corrente",
+    description="Invia pannello ticket",
     guild=GUILD_OBJECT
 )
-async def setup_ticket(interaction: discord.Interaction):
+async def setup_ticket(interaction):
     if not isinstance(interaction.user, discord.Member) or not member_can_use_setup_commands(interaction.user):
         await interaction.response.send_message(
-            "❌ Non hai i permessi per usare questo comando.",
+            "❌ Non hai i permessi.",
             ephemeral=True
         )
         return
@@ -1036,10 +894,8 @@ async def setup_ticket(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🎫 Centro Supporto RedM Italia",
         description=(
-            "Benvenuto nel centro supporto ufficiale di **RedM Italia Community**.\n\n"
-            "Seleziona dal menu qui sotto il tipo di richiesta più adatto.\n"
-            "Lo staff riceverà il tuo ticket in un canale privato.\n\n"
-            "Apri un ticket solo se hai davvero bisogno di supporto."
+            "Benvenuto nel centro supporto ufficiale.\n\n"
+            "Seleziona il tipo di ticket dal menu qui sotto."
         ),
         color=0x3498db
     )
@@ -1047,26 +903,13 @@ async def setup_ticket(interaction: discord.Interaction):
     embed.add_field(
         name="Categorie disponibili",
         value=(
-            "🎫 **Supporto Generale** — dubbi, problemi Discord o richieste generiche\n"
-            "🤝 **Partnership** — collaborazioni con server, community o creator\n"
-            "⭐ **Promozione Server** — richiesta promozione server RedM\n"
-            "💼 **Candidatura Staff** — richiesta per entrare nello staff"
+            "🎫 Supporto Generale\n"
+            "🤝 Partnership\n"
+            "⭐ Promozione Server\n"
+            "💼 Candidatura Staff"
         ),
         inline=False
     )
-
-    embed.add_field(
-        name="Regole",
-        value=(
-            "• Non aprire ticket inutili\n"
-            "• Non aprire ticket duplicati\n"
-            "• Scrivi in modo chiaro e rispettoso\n"
-            "• Attendi risposta dallo staff senza spam"
-        ),
-        inline=False
-    )
-
-    embed.set_footer(text="RedM Italia Community • Sistema ticket ufficiale")
 
     await interaction.channel.send(
         embed=embed,
@@ -1074,7 +917,7 @@ async def setup_ticket(interaction: discord.Interaction):
     )
 
     await interaction.response.send_message(
-        "✅ Pannello ticket pubblicato correttamente.",
+        "✅ Pannello ticket pubblicato.",
         ephemeral=True
     )
 
