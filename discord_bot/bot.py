@@ -1166,6 +1166,182 @@ class TicketControlView(discord.ui.View):
             traceback.print_exc()
 
 
+
+class CreatorApplicationView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Approva Creator",
+        emoji="✅",
+        style=discord.ButtonStyle.success,
+        custom_id="redm_creator_approve"
+    )
+    async def approve_creator(self, interaction, button):
+        guild = interaction.guild
+        staff_member = interaction.user
+        channel = interaction.channel
+
+        if not guild or not isinstance(staff_member, discord.Member):
+            return
+
+        if not isinstance(channel, discord.TextChannel):
+            return
+
+        if not member_is_ticket_staff(staff_member):
+            await interaction.response.send_message(
+                "❌ Solo lo staff può approvare i creator.",
+                ephemeral=True
+            )
+            return
+
+        owner_id = get_ticket_owner_id(channel)
+
+        if not owner_id:
+            await interaction.response.send_message(
+                "❌ Proprietario ticket non trovato.",
+                ephemeral=True
+            )
+            return
+
+        target_member = guild.get_member(int(owner_id))
+
+        if not target_member:
+            await interaction.response.send_message(
+                "❌ Utente non trovato nel server.",
+                ephemeral=True
+            )
+            return
+
+        creator_role = find_role(guild, "creator")
+
+        if not creator_role:
+            await interaction.response.send_message(
+                "❌ Ruolo Creator non trovato.",
+                ephemeral=True
+            )
+            return
+
+        try:
+            if creator_role not in target_member.roles:
+                await target_member.add_roles(
+                    creator_role,
+                    reason=f"Creator approvato da {staff_member}"
+                )
+
+            embed = discord.Embed(
+                title="✅ Creator approvato",
+                description=(
+                    f"{target_member.mention} è stato approvato "
+                    f"nel **Creator Program** di **{BRAND_NAME}**.\n\n"
+                    "Ora può accedere alle sezioni dedicate ai creator."
+                ),
+                color=SUCCESS_COLOR
+            )
+
+            apply_brand(embed, guild)
+
+            await channel.send(embed=embed)
+
+            await send_admin_log(
+                guild,
+                "✅ Creator approvato",
+                (
+                    f"Utente: {target_member.mention}\n"
+                    f"Staff: {staff_member.mention}\n"
+                    f"Ticket: {channel.mention}"
+                ),
+                color=SUCCESS_COLOR
+            )
+
+            await interaction.response.send_message(
+                "✅ Creator approvato e ruolo assegnato.",
+                ephemeral=True
+            )
+
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ Non posso assegnare il ruolo Creator. "
+                "Controlla che il ruolo del bot sia sopra al ruolo Creator.",
+                ephemeral=True
+            )
+
+        except Exception:
+            print("❌ ERRORE APPROVAZIONE CREATOR")
+            traceback.print_exc()
+
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ Errore durante l’approvazione creator.",
+                    ephemeral=True
+                )
+
+    @discord.ui.button(
+        label="Rifiuta Creator",
+        emoji="❌",
+        style=discord.ButtonStyle.danger,
+        custom_id="redm_creator_reject"
+    )
+    async def reject_creator(self, interaction, button):
+        guild = interaction.guild
+        staff_member = interaction.user
+        channel = interaction.channel
+
+        if not guild or not isinstance(staff_member, discord.Member):
+            return
+
+        if not isinstance(channel, discord.TextChannel):
+            return
+
+        if not member_is_ticket_staff(staff_member):
+            await interaction.response.send_message(
+                "❌ Solo lo staff può rifiutare i creator.",
+                ephemeral=True
+            )
+            return
+
+        owner_id = get_ticket_owner_id(channel)
+
+        target_text = "Utente non trovato"
+
+        if owner_id:
+            target_member = guild.get_member(int(owner_id))
+
+            if target_member:
+                target_text = target_member.mention
+            else:
+                target_text = f"`{owner_id}`"
+
+        embed = discord.Embed(
+            title="❌ Candidatura creator rifiutata",
+            description=(
+                f"La candidatura creator di {target_text} "
+                "non è stata approvata.\n\n"
+                "Lo staff può lasciare una motivazione nel ticket "
+                "prima della chiusura."
+            ),
+            color=DANGER_COLOR
+        )
+
+        apply_brand(embed, guild)
+
+        await channel.send(embed=embed)
+
+        await send_admin_log(
+            guild,
+            "❌ Creator rifiutato",
+            (
+                f"Utente: {target_text}\n"
+                f"Staff: {staff_member.mention}\n"
+                f"Ticket: {channel.mention}"
+            ),
+            color=DANGER_COLOR
+        )
+
+        await interaction.response.send_message(
+            "❌ Candidatura creator rifiutata.",
+            ephemeral=True
+        )
 class TicketSelect(discord.ui.Select):
     def __init__(self):
         options = []
@@ -1313,10 +1489,11 @@ class TicketSelect(discord.ui.Select):
                     interaction.guild
                 )
 
-                await channel.send(
+            await channel.send(
                     content=interaction.user.mention,
-                    embed=creator_embed
-                )
+                    embed=creator_embed,
+                    view=CreatorApplicationView()
+)
 
             await send_admin_log(
                 guild,
@@ -1361,6 +1538,7 @@ async def on_ready():
     bot.add_view(RolePickerView())
     bot.add_view(TicketPanelView())
     bot.add_view(TicketControlView())
+    bot.add_view(CreatorApplicationView())
 
     await bot.change_presence(
         activity=discord.Activity(
