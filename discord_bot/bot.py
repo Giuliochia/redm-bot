@@ -43,6 +43,7 @@ BANNER_RUOLI = os.path.join(ASSETS_DIR, "banner_ruoli.png")
 BANNER_DISCORD = os.path.join(ASSETS_DIR, "banner_discord.png")
 BANNER_REGOLE = os.path.join(ASSETS_DIR, "banner_regole.png")
 BANNER_CREATOR_PROGRAM = os.path.join(ASSETS_DIR, "banner_creator_program.png")
+BANNER_CREATOR_GUIDELINES = os.path.join(ASSETS_DIR, "banner_creator_guidelines.png")
 BANNER_INVITO = os.path.join(ASSETS_DIR, "banner_invito.png")
 WELCOME_BANNER = os.path.join(ASSETS_DIR, "welcome_banner.png")
 LOGO_IMAGE = os.path.join(ASSETS_DIR, "logo.png")
@@ -2207,6 +2208,125 @@ async def setup_invito(interaction):
 
     await interaction.response.send_message(
         "✅ Pannello invito pubblicato.",
+        ephemeral=True
+    )
+
+@bot.tree.command(
+    name="setup_creator_guidelines",
+    description="Invia linee guida creator"
+)
+async def setup_creator_guidelines(interaction):
+    member = interaction.user
+
+    if not isinstance(member, discord.Member):
+        return
+
+    if not member_can_use_setup_commands(member):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi.",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title="📜 Linee Guida Creator",
+        description=(
+            "Benvenuto nel **Creator Program ufficiale** "
+            "della RedM Italia Community.\n\n"
+
+            "Queste linee guida definiscono "
+            "comportamento, qualità e responsabilità "
+            "dei creator presenti nella community."
+        ),
+        color=BRAND_COLOR
+    )
+
+    embed.add_field(
+        name="✅ Requisiti",
+        value=(
+            "• Contenuti legati a RedM\n"
+            "• Attività costante\n"
+            "• Community friendly\n"
+            "• Rispetto regolamento server\n"
+            "• Nessun comportamento tossico"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🚫 Contenuti vietati",
+        value=(
+            "• Cheat / mod menu\n"
+            "• Hate speech\n"
+            "• Leak o drama tossico\n"
+            "• NSFW estremo\n"
+            "• Promozioni scam"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🤝 Partnership Creator",
+        value=(
+            "Le partnership vengono valutate "
+            "manualmente dallo staff.\n\n"
+
+            "Attività, qualità contenuti e "
+            "impatto nella community influenzano "
+            "la valutazione."
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="⚠️ Revoca ruolo Creator",
+        value=(
+            "Il ruolo Creator può essere rimosso "
+            "in caso di:\n"
+            "• inattività\n"
+            "• tossicità\n"
+            "• violazioni regolamento\n"
+            "• comportamento dannoso"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎥 Visibilità Creator",
+        value=(
+            "I creator approvati possono ottenere:\n"
+            "• live automatiche\n"
+            "• showcase community\n"
+            "• clip highlights\n"
+            "• partnership ufficiali"
+        ),
+        inline=False
+    )
+
+    apply_brand(embed, interaction.guild)
+
+    file = make_file(
+        BANNER_CREATOR_GUIDELINES,
+        "banner_creator_guidelines.png"
+    )
+
+    if file:
+        embed.set_image(
+            url="attachment://banner_creator_guidelines.png"
+        )
+
+        await interaction.channel.send(
+            file=file,
+            embed=embed
+        )
+
+    else:
+        await interaction.channel.send(
+            embed=embed
+        )
+
+    await interaction.response.send_message(
+        "✅ Linee guida creator pubblicate.",
         ephemeral=True
     )
 
