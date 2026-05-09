@@ -1369,7 +1369,7 @@ async def setup_regole(interaction):
         return
 
     embed = discord.Embed(
-        title="🤠 Regole della Frontiera",
+        title="🤠 Regole della Community",
         description=(
             f"Benvenuto nel regolamento ufficiale di **{BRAND_NAME}**.\n\n"
             "Per mantenere una community sana, rispettosa e professionale,\n"
