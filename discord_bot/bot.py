@@ -1663,12 +1663,12 @@ async def setup_regole(interaction):
         "✅ Pannello regolamento pubblicato.",
         ephemeral=True
     )
-    @bot.tree.command(
+@bot.tree.command(
     name="setup_creator",
     description="Invia pannello creator program"
 )
-    async def setup_creator(interaction):
-        member = interaction.user
+async def setup_creator(interaction):
+    member = interaction.user
 
     if not isinstance(member, discord.Member):
         return
