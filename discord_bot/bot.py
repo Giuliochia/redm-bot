@@ -43,11 +43,15 @@ BANNER_RUOLI = os.path.join(ASSETS_DIR, "banner_ruoli.png")
 BANNER_DISCORD = os.path.join(ASSETS_DIR, "banner_discord.png")
 BANNER_REGOLE = os.path.join(ASSETS_DIR, "banner_regole.png")
 BANNER_CREATOR_PROGRAM = os.path.join(ASSETS_DIR, "banner_creator_program.png")
+BANNER_INVITO = os.path.join(ASSETS_DIR, "banner_invito.png")
 WELCOME_BANNER = os.path.join(ASSETS_DIR, "welcome_banner.png")
 LOGO_IMAGE = os.path.join(ASSETS_DIR, "logo.png")
 
 TWITCH_STREAMERS = [
-    "tuma_tv"
+    {
+        "twitch_name": "tuma_tv",
+        "discord_id": 633041890111127562
+    }
 ]
 
 REDM_KEYWORDS = [
@@ -400,43 +404,74 @@ async def fetch_twitch_streams():
 
     params = []
 
-    for streamer in TWITCH_STREAMERS:
-        params.append(("user_login", streamer))
+    for streamer_data in TWITCH_STREAMERS:
+        params.append(
+            (
+                "user_login",
+                streamer_data["twitch_name"]
+            )
+        )
 
     url = "https://api.twitch.tv/helix/streams"
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, params=params) as response:
+            async with session.get(
+                url,
+                headers=headers,
+                params=params
+            ) as response:
+
                 if response.status == 401:
                     print("⚠️ Twitch token scaduto, rigenero token.")
+
                     twitch_access_token = await get_twitch_access_token()
 
                     if not twitch_access_token:
                         return []
 
-                    headers["Authorization"] = f"Bearer {twitch_access_token}"
+                    headers["Authorization"] = (
+                        f"Bearer {twitch_access_token}"
+                    )
 
-                    async with session.get(url, headers=headers, params=params) as retry_response:
+                    async with session.get(
+                        url,
+                        headers=headers,
+                        params=params
+                    ) as retry_response:
+
                         if retry_response.status != 200:
                             text = await retry_response.text()
-                            print(f"❌ Errore Twitch streams retry: {retry_response.status} {text}")
+
+                            print(
+                                f"❌ Errore Twitch streams retry: "
+                                f"{retry_response.status} {text}"
+                            )
+
                             return []
 
                         retry_data = await retry_response.json()
+
                         return retry_data.get("data", [])
 
                 if response.status != 200:
                     text = await response.text()
-                    print(f"❌ Errore Twitch streams: {response.status} {text}")
+
+                    print(
+                        f"❌ Errore Twitch streams: "
+                        f"{response.status} {text}"
+                    )
+
                     return []
 
                 data = await response.json()
+
                 return data.get("data", [])
 
     except Exception:
         print("❌ ERRORE FETCH TWITCH STREAMS")
         traceback.print_exc()
+
         return []
 
 
@@ -449,29 +484,68 @@ async def twitch_live_checker():
             print("⚠️ Guild non trovata per Twitch checker.")
             return
 
-        live_channel = find_channel(guild, CHANNEL_LIVE_STREAMS_KEYWORD)
+        live_channel = find_channel(
+            guild,
+            CHANNEL_LIVE_STREAMS_KEYWORD
+        )
 
         if not live_channel:
             print("⚠️ Canale live-streams non trovato.")
             return
 
-        verified_role = find_role(guild, ROLE_VERIFIED_KEYWORD)
+        verified_role = find_role(
+            guild,
+            ROLE_VERIFIED_KEYWORD
+        )
 
         streams = await fetch_twitch_streams()
+
         currently_live_redm = set()
 
         for stream in streams:
-            streamer_login = stream.get("user_login", "").lower()
-            streamer_name = stream.get("user_name", streamer_login)
-            stream_title = stream.get("title", "")
-            stream_url = f"https://www.twitch.tv/{streamer_login}"
+            streamer_login = stream.get(
+                "user_login",
+                ""
+            ).lower()
+
+            streamer_name = stream.get(
+                "user_name",
+                streamer_login
+            )
+
+            stream_title = stream.get(
+                "title",
+                ""
+            )
+
+            stream_url = (
+                f"https://www.twitch.tv/{streamer_login}"
+            )
+
+            streamer_config = next(
+                (
+                    item for item in TWITCH_STREAMERS
+                    if item["twitch_name"].lower() == streamer_login
+                ),
+                None
+            )
+
+            creator_mention = ""
+
+            if streamer_config:
+                creator_mention = (
+                    f"<@{streamer_config['discord_id']}>"
+                )
 
             if not streamer_login:
                 continue
 
             if not is_redm_stream(stream):
+
                 if streamer_login in announced_live_streams:
-                    announced_live_streams.discard(streamer_login)
+                    announced_live_streams.discard(
+                        streamer_login
+                    )
 
                 continue
 
@@ -480,11 +554,16 @@ async def twitch_live_checker():
             if streamer_login in announced_live_streams:
                 continue
 
-            mention = verified_role.mention if verified_role else ""
+            mention = (
+                verified_role.mention
+                if verified_role
+                else ""
+            )
 
             message = (
                 f"{mention}\n\n"
-                f"🔴 **{streamer_name} è live su RedM!**\n\n"
+                f"🔴 **{streamer_name} è live su RedM!**\n"
+                f"{creator_mention}\n\n"
                 f"📌 **Titolo:** {stream_title}\n"
                 f"📺 Guarda ora:\n"
                 f"{stream_url}"
@@ -495,11 +574,13 @@ async def twitch_live_checker():
                 allowed_mentions=discord.AllowedMentions(
                     roles=True,
                     everyone=False,
-                    users=False
+                    users=True
                 )
             )
 
-            announced_live_streams.add(streamer_login)
+            announced_live_streams.add(
+                streamer_login
+            )
 
             await send_admin_log(
                 guild,
@@ -512,10 +593,15 @@ async def twitch_live_checker():
                 color=DANGER_COLOR
             )
 
-        offline_streamers = announced_live_streams - currently_live_redm
+        offline_streamers = (
+            announced_live_streams
+            - currently_live_redm
+        )
 
         for streamer_login in list(offline_streamers):
-            announced_live_streams.discard(streamer_login)
+            announced_live_streams.discard(
+                streamer_login
+            )
 
     except Exception:
         print("❌ ERRORE TWITCH LIVE CHECKER")
@@ -1760,6 +1846,81 @@ async def setup_creator(interaction):
         "✅ Pannello creator pubblicato.",
         ephemeral=True
     )
+@bot.tree.command(
+    name="setup_invito",
+    description="Invia pannello invito community"
+)
+async def setup_invito(interaction):
+    member = interaction.user
 
+    if not isinstance(member, discord.Member):
+        return
+
+    if not member_can_use_setup_commands(member):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi.",
+            ephemeral=True
+        )
+        return
+
+    invite_url = "https://discord.gg/hXZ8fv52zz"
+
+    embed = discord.Embed(
+        title="🌅 Invito RedM Italia Community",
+        description=(
+            "Condividi la community italiana dedicata al mondo **RedM**.\n\n"
+            "Qui trovi player, developer, mapper, creator e server owner "
+            "uniti dalla stessa passione.\n\n"
+            f"🔗 **Invito ufficiale:**\n{invite_url}"
+        ),
+        color=BRAND_COLOR
+    )
+
+    embed.add_field(
+        name="🤠 Community",
+        value=(
+            "• Player RedM\n"
+            "• Developer\n"
+            "• Mapper\n"
+            "• Creator\n"
+            "• Server Owner"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="📌 Condividi il server",
+        value=(
+            "Invita amici, creator e community interessate al mondo RedM.\n\n"
+            "**Rispetto • Passione • Community**"
+        ),
+        inline=False
+    )
+
+    apply_brand(embed, interaction.guild)
+
+    file = make_file(
+        BANNER_INVITO,
+        "banner_invito.png"
+    )
+
+    if file:
+        embed.set_image(
+            url="attachment://banner_invito.png"
+        )
+
+        await interaction.channel.send(
+            file=file,
+            embed=embed
+        )
+    else:
+        await interaction.channel.send(
+            embed=embed
+        )
+
+    await interaction.response.send_message(
+        "✅ Pannello invito pubblicato.",
+        ephemeral=True
+    )
 
 bot.run(DISCORD_TOKEN)
