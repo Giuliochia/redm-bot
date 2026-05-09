@@ -391,6 +391,20 @@ async def get_twitch_access_token():
         return None
 
 
+class LiveStreamView(discord.ui.View):
+    def __init__(self, stream_url):
+        super().__init__(timeout=None)
+
+        self.add_item(
+            discord.ui.Button(
+                label="Guarda Live",
+                emoji="🔴",
+                style=discord.ButtonStyle.link,
+                url=stream_url
+            )
+        )
+
+
 async def fetch_twitch_streams():
     global twitch_access_token
 
@@ -521,8 +535,30 @@ async def twitch_live_checker():
 
             stream_title = stream.get(
                 "title",
+                "Live RedM Italia"
+            )
+
+            game_name = stream.get(
+                "game_name",
+                "RedM"
+            )
+
+            viewer_count = stream.get(
+                "viewer_count",
+                0
+            )
+
+            thumbnail_url = stream.get(
+                "thumbnail_url",
                 ""
             )
+
+            if thumbnail_url:
+                thumbnail_url = (
+                    thumbnail_url
+                    .replace("{width}", "1280")
+                    .replace("{height}", "720")
+                )
 
             stream_url = (
                 f"https://www.twitch.tv/{streamer_login}"
@@ -560,23 +596,62 @@ async def twitch_live_checker():
             if streamer_login in announced_live_streams:
                 continue
 
-            mention = (
+            role_mention = (
                 verified_role.mention
                 if verified_role
                 else ""
             )
 
-            message = (
-                f"{mention}\n\n"
-                f"🔴 **{streamer_name} è live su RedM!**\n"
-                f"{creator_mention}\n\n"
-                f"📌 **Titolo:** {stream_title}\n"
-                f"📺 Guarda ora:\n"
-                f"{stream_url}"
-            ).strip()
+            embed = discord.Embed(
+                title=f"🔴 {streamer_name} è ora LIVE su RedM",
+                description=(
+                    f"{creator_mention}\n\n"
+                    "Un creator della **RedM Italia Community** "
+                    "è in diretta adesso.\n\n"
+                    "Clicca il pulsante qui sotto per entrare nella live."
+                ),
+                color=DANGER_COLOR,
+                url=stream_url
+            )
+
+            embed.add_field(
+                name="📌 Titolo",
+                value=stream_title[:1024],
+                inline=False
+            )
+
+            embed.add_field(
+                name="🎮 Categoria",
+                value=game_name,
+                inline=True
+            )
+
+            embed.add_field(
+                name="👥 Spettatori",
+                value=str(viewer_count),
+                inline=True
+            )
+
+            embed.add_field(
+                name="🎥 Creator",
+                value=creator_mention if creator_mention else streamer_name,
+                inline=True
+            )
+
+            if thumbnail_url:
+                embed.set_image(url=thumbnail_url)
+
+            if guild.icon:
+                embed.set_thumbnail(url=guild.icon.url)
+
+            embed.set_footer(
+                text=f"{BRAND_NAME} • Live System"
+            )
 
             await live_channel.send(
-                content=message,
+                content=role_mention,
+                embed=embed,
+                view=LiveStreamView(stream_url),
                 allowed_mentions=discord.AllowedMentions(
                     roles=True,
                     everyone=False,
@@ -593,6 +668,9 @@ async def twitch_live_checker():
                 "🔴 Live RedM pubblicata",
                 (
                     f"Streamer: **{streamer_name}**\n"
+                    f"Creator Discord: {creator_mention or '`Non collegato`'}\n"
+                    f"Categoria: `{game_name}`\n"
+                    f"Spettatori: `{viewer_count}`\n"
                     f"Titolo: `{stream_title}`\n"
                     f"Link: {stream_url}"
                 ),
