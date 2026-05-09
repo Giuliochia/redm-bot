@@ -4,7 +4,10 @@ import asyncio
 import traceback
 import aiohttp
 import discord
+import re
 
+from collections import defaultdict, deque
+from datetime import timedelta
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from discord.ext import commands, tasks
 from dotenv import load_dotenv
@@ -80,6 +83,52 @@ SETUP_ALLOWED_ROLE_KEYWORDS = [
 ticket_claims = {}
 twitch_access_token = None
 announced_live_streams = set()
+
+automod_message_cache = defaultdict(lambda: deque(maxlen=10))
+recent_join_times = deque(maxlen=50)
+last_join_spike_log = 0
+
+AUTOMOD_IGNORED_CHANNEL_KEYWORDS = [
+    "admin-logs",
+    "ticket",
+    "regolamento",
+    "verifica",
+    "live-streams",
+    "linee-guida",
+    "benvenuti"
+]
+
+AUTOMOD_BLOCKED_DOMAINS = [
+    "free-nitro",
+    "discordnitro",
+    "steamcommunit",
+    "steamgift",
+    "bit.ly",
+    "tinyurl.com",
+    "grabify",
+    "iplogger",
+    "linkvertise",
+    "adf.ly"
+]
+
+AUTOMOD_SCAM_KEYWORDS = [
+    "free nitro",
+    "nitro gratis",
+    "steam gift",
+    "gift nitro",
+    "claim nitro",
+    "airdrop",
+    "token grabber"
+]
+
+AUTOMOD_DUPLICATE_LIMIT = 4
+AUTOMOD_DUPLICATE_WINDOW = 20
+
+AUTOMOD_MENTION_LIMIT = 6
+
+RAID_JOIN_LIMIT = 8
+RAID_JOIN_WINDOW = 20
+RAID_LOG_COOLDOWN = 120
 
 ROLE_OPTIONS = {
     "player": {
@@ -327,7 +376,114 @@ async def send_admin_log(
         embed=embed,
         file=file
     )
+def automod_channel_is_ignored(channel):
+    if not channel:
+        return True
 
+    channel_name = channel.name.lower()
+
+    return any(
+        keyword in channel_name
+        for keyword in AUTOMOD_IGNORED_CHANNEL_KEYWORDS
+    )
+
+
+def automod_member_is_staff(member):
+    if not isinstance(member, discord.Member):
+        return False
+
+    if member.guild_permissions.manage_messages:
+        return True
+
+    if member.guild_permissions.administrator:
+        return True
+
+    return member_is_ticket_staff(member)
+
+
+def extract_domains_from_message(content):
+    pattern = r"(https?://[^\s]+|discord\.gg/[^\s]+)"
+    matches = re.findall(pattern, content.lower())
+
+    domains = []
+
+    for url in matches:
+        clean_url = url.replace("https://", "").replace("http://", "")
+        domain = clean_url.split("/")[0]
+        domains.append(domain)
+
+    return domains
+
+
+def message_contains_blocked_domain(content):
+    content_lower = content.lower()
+    domains = extract_domains_from_message(content_lower)
+
+    for blocked_domain in AUTOMOD_BLOCKED_DOMAINS:
+        if blocked_domain in content_lower:
+            return True
+
+        for domain in domains:
+            if blocked_domain in domain:
+                return True
+
+    return False
+
+
+def message_contains_scam_keyword(content):
+    content_lower = content.lower()
+
+    return any(
+        keyword in content_lower
+        for keyword in AUTOMOD_SCAM_KEYWORDS
+    )
+
+
+def normalize_message_content(content):
+    return " ".join(content.lower().strip().split())
+
+
+async def automod_log(guild, title, description, color=WARNING_COLOR):
+    await send_admin_log(
+        guild,
+        title,
+        description,
+        color=color
+    )
+
+
+async def automod_timeout(member, seconds, reason):
+    try:
+        await member.timeout(
+            timedelta(seconds=seconds),
+            reason=reason
+        )
+
+        return True
+
+    except discord.Forbidden:
+        print("⚠️ AutoMod non può mettere timeout: permessi insufficienti.")
+        return False
+
+    except Exception:
+        print("❌ ERRORE AUTOMOD TIMEOUT")
+        traceback.print_exc()
+        return False
+
+
+async def automod_delete_message(message):
+    try:
+        await message.delete()
+        return True
+
+    except discord.Forbidden:
+        print("⚠️ AutoMod non può eliminare messaggi: permessi insufficienti.")
+        return False
+
+    except Exception:
+        print("❌ ERRORE AUTOMOD DELETE")
+        traceback.print_exc()
+        return False
 
 async def generate_ticket_transcript(channel):
     lines = []
@@ -1652,7 +1808,33 @@ async def on_ready():
 
 @bot.event
 async def on_member_join(member):
+    global last_join_spike_log
+
     try:
+        now = discord.utils.utcnow().timestamp()
+        recent_join_times.append(now)
+
+        recent_joins = [
+            join_time for join_time in recent_join_times
+            if now - join_time <= RAID_JOIN_WINDOW
+        ]
+
+        if len(recent_joins) >= RAID_JOIN_LIMIT:
+            if now - last_join_spike_log >= RAID_LOG_COOLDOWN:
+                last_join_spike_log = now
+
+                await send_admin_log(
+                    member.guild,
+                    "🚨 Possibile join spike rilevato",
+                    (
+                        f"Sono entrati **{len(recent_joins)} utenti** "
+                        f"negli ultimi **{RAID_JOIN_WINDOW} secondi**.\n\n"
+                        "Nessuna azione automatica eseguita.\n"
+                        "Il server è in monitoraggio."
+                    ),
+                    color=WARNING_COLOR
+                )
+
         new_role = find_role(member.guild, ROLE_NEW_KEYWORD)
 
         if new_role:
@@ -1676,6 +1858,143 @@ async def on_member_join(member):
     except Exception:
         print("❌ ERRORE MEMBER JOIN")
         traceback.print_exc()
+
+@bot.event
+async def on_message(message):
+    try:
+        if message.author.bot:
+            return
+
+        if not message.guild:
+            return
+
+        if not isinstance(message.author, discord.Member):
+            return
+
+        member = message.author
+        channel = message.channel
+
+        if automod_channel_is_ignored(channel):
+            await bot.process_commands(message)
+            return
+
+        if automod_member_is_staff(member):
+            await bot.process_commands(message)
+            return
+
+        content = message.content or ""
+
+        if not content.strip():
+            await bot.process_commands(message)
+            return
+
+        total_mentions = (
+            len(message.mentions)
+            + len(message.role_mentions)
+        )
+
+        if message.mention_everyone or total_mentions >= AUTOMOD_MENTION_LIMIT:
+            await automod_delete_message(message)
+
+            await automod_timeout(
+                member,
+                300,
+                "AutoMod: mention spam"
+            )
+
+            await automod_log(
+                message.guild,
+                "🚨 AutoMod: mention spam",
+                (
+                    f"Utente: {member.mention}\n"
+                    f"Canale: {channel.mention}\n"
+                    f"Mentions: `{total_mentions}`\n"
+                    f"Messaggio eliminato."
+                ),
+                color=DANGER_COLOR
+            )
+
+            return
+
+        if (
+            message_contains_blocked_domain(content)
+            or message_contains_scam_keyword(content)
+        ):
+            await automod_delete_message(message)
+
+            await automod_timeout(
+                member,
+                600,
+                "AutoMod: link o contenuto sospetto"
+            )
+
+            await automod_log(
+                message.guild,
+                "🚨 AutoMod: contenuto sospetto",
+                (
+                    f"Utente: {member.mention}\n"
+                    f"Canale: {channel.mention}\n"
+                    f"Contenuto:\n```{content[:900]}```"
+                ),
+                color=DANGER_COLOR
+            )
+
+            return
+
+        normalized_content = normalize_message_content(content)
+
+        if normalized_content:
+            now = discord.utils.utcnow().timestamp()
+
+            automod_message_cache[member.id].append(
+                {
+                    "content": normalized_content,
+                    "timestamp": now,
+                    "channel_id": channel.id
+                }
+            )
+
+            recent_same_messages = [
+                item for item in automod_message_cache[member.id]
+                if (
+                    item["content"] == normalized_content
+                    and now - item["timestamp"] <= AUTOMOD_DUPLICATE_WINDOW
+                )
+            ]
+
+            if len(recent_same_messages) >= AUTOMOD_DUPLICATE_LIMIT:
+                await automod_delete_message(message)
+
+                await automod_timeout(
+                    member,
+                    60,
+                    "AutoMod: messaggi duplicati ripetuti"
+                )
+
+                await automod_log(
+                    message.guild,
+                    "⚠️ AutoMod: flood duplicato",
+                    (
+                        f"Utente: {member.mention}\n"
+                        f"Canale: {channel.mention}\n"
+                        f"Ripetizioni: `{len(recent_same_messages)}`\n"
+                        f"Messaggio:\n```{content[:900]}```"
+                    ),
+                    color=WARNING_COLOR
+                )
+
+                return
+
+        await bot.process_commands(message)
+
+    except Exception:
+        print("❌ ERRORE AUTOMOD ON_MESSAGE")
+        traceback.print_exc()
+
+        try:
+            await bot.process_commands(message)
+        except Exception:
+            pass
 
 
 @bot.tree.command(
