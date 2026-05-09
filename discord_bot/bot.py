@@ -127,6 +127,12 @@ TICKET_TYPES = {
         "channel_prefix": "server",
         "color": WARNING_COLOR
     },
+        "candidatura_creator": {
+        "label": "Candidatura Creator",
+        "emoji": "🎥",
+        "channel_prefix": "creator",
+        "color": BRAND_COLOR
+    },
     "candidatura_staff": {
         "label": "Candidatura Staff",
         "emoji": "💼",
@@ -1286,6 +1292,31 @@ class TicketSelect(discord.ui.Select):
                 embed=embed,
                 view=TicketControlView()
             )
+
+            if ticket_type == "candidatura_creator":
+                creator_embed = discord.Embed(
+                    title="🎥 Candidatura Creator",
+                    description=(
+                        "Compila il modulo qui sotto.\n\n"
+                        "• Nome creator:\n"
+                        "• Piattaforma:\n"
+                        "• Link canale:\n"
+                        "• Tipo contenuti:\n"
+                        "• Da quanto crei contenuti:\n"
+                        "• Perché vuoi entrare nel Creator Program:"
+                    ),
+                    color=BRAND_COLOR
+                )
+
+                apply_brand(
+                    creator_embed,
+                    interaction.guild
+                )
+
+                await channel.send(
+                    content=interaction.user.mention,
+                    embed=creator_embed
+                )
 
             await send_admin_log(
                 guild,
