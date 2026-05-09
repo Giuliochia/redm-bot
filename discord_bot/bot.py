@@ -42,6 +42,7 @@ BANNER_VERIFICA = os.path.join(ASSETS_DIR, "banner_verifica.png")
 BANNER_RUOLI = os.path.join(ASSETS_DIR, "banner_ruoli.png")
 BANNER_DISCORD = os.path.join(ASSETS_DIR, "banner_discord.png")
 BANNER_REGOLE = os.path.join(ASSETS_DIR, "banner_regole.png")
+BANNER_CREATOR_PROGRAM = os.path.join(ASSETS_DIR, "banner_creator_program.png")
 WELCOME_BANNER = os.path.join(ASSETS_DIR, "welcome_banner.png")
 LOGO_IMAGE = os.path.join(ASSETS_DIR, "logo.png")
 
@@ -1660,6 +1661,102 @@ async def setup_regole(interaction):
 
     await interaction.response.send_message(
         "✅ Pannello regolamento pubblicato.",
+        ephemeral=True
+    )
+    @bot.tree.command(
+    name="setup_creator",
+    description="Invia pannello creator program"
+)
+    async def setup_creator(interaction):
+        member = interaction.user
+
+    if not isinstance(member, discord.Member):
+        return
+
+    if not member_can_use_setup_commands(member):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi.",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title="🎥 Programma Creator RedM Italia",
+        description=(
+            "Sei uno streamer o creator RedM?\n\n"
+            "La RedM Italia Community supporta creator italiani "
+            "attraverso visibilità, live alerts e partnership community.\n\n"
+            "Apri un ticket per candidarti al programma creator ufficiale."
+        ),
+        color=BRAND_COLOR
+    )
+
+    embed.add_field(
+        name="✅ Benefici Creator",
+        value=(
+            "• Accesso Creator Hub\n"
+            "• Promozione live automatiche\n"
+            "• Partnership creator\n"
+            "• Showcase clip e highlights\n"
+            "• Accesso eventi community"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="📋 Requisiti",
+        value=(
+            "• Contenuti RedM\n"
+            "• Community friendly\n"
+            "• Nessun contenuto tossico\n"
+            "• Attività costante\n"
+            "• Rispetto regolamento"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="⚠️ Importante",
+        value=(
+            "Il ruolo 🎥 Creator NON viene assegnato automaticamente.\n\n"
+            "Ogni candidatura viene controllata manualmente "
+            "dallo staff."
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🎫 Come candidarsi",
+        value=(
+            "Apri un ticket Creator "
+            "nel pannello supporto."
+        ),
+        inline=False
+    )
+
+    apply_brand(embed, interaction.guild)
+
+    file = make_file(
+        BANNER_CREATOR_PROGRAM,
+        "banner_creator_program.png"
+    )
+
+    if file:
+        embed.set_image(
+            url="attachment://banner_creator_program.png"
+        )
+
+        await interaction.channel.send(
+            file=file,
+            embed=embed
+        )
+    else:
+        await interaction.channel.send(
+            embed=embed
+        )
+
+    await interaction.response.send_message(
+        "✅ Pannello creator pubblicato.",
         ephemeral=True
     )
 
