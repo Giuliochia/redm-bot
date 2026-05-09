@@ -37,6 +37,7 @@ ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 BANNER_VERIFICA = os.path.join(ASSETS_DIR, "banner_verifica.png")
 BANNER_RUOLI = os.path.join(ASSETS_DIR, "banner_ruoli.png")
 BANNER_DISCORD = os.path.join(ASSETS_DIR, "banner_discord.png")
+BANNER_REGOLE = os.path.join(ASSETS_DIR, "banner_regole.png")
 WELCOME_BANNER = os.path.join(ASSETS_DIR, "welcome_banner.png")
 LOGO_IMAGE = os.path.join(ASSETS_DIR, "logo.png")
 
@@ -436,11 +437,11 @@ async def generate_welcome_card(member):
     member_number_text = f"#{member_count}"
 
     number_bbox = draw.textbbox(
-    (0, 0),
-    member_number_text,
-    font=member_number_font,
-    stroke_width=4
-)
+        (0, 0),
+        member_number_text,
+        font=member_number_font,
+        stroke_width=4
+    )
 
     number_width = number_bbox[2] - number_bbox[0]
 
@@ -449,13 +450,13 @@ async def generate_welcome_card(member):
     number_y = 372
 
     draw.text(
-    (number_x, number_y),
-    member_number_text,
-    font=member_number_font,
-    fill=(255, 255, 255, 255),
-    stroke_width=5,
-    stroke_fill=(0, 0, 0, 255)
-)
+        (number_x, number_y),
+        member_number_text,
+        font=member_number_font,
+        fill=(255, 255, 255, 255),
+        stroke_width=5,
+        stroke_fill=(0, 0, 0, 255)
+    )
 
     output = io.BytesIO()
     background.save(output, format="PNG")
@@ -1346,6 +1347,104 @@ async def setup_welcome(interaction):
 
     await interaction.response.send_message(
         "✅ Pannello welcome pubblicato.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(
+    name="setup_regole",
+    description="Invia pannello regolamento"
+)
+async def setup_regole(interaction):
+    member = interaction.user
+
+    if not isinstance(member, discord.Member):
+        return
+
+    if not member_can_use_setup_commands(member):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi.",
+            ephemeral=True
+        )
+        return
+
+    embed = discord.Embed(
+        title="🤠 Regole della Frontiera",
+        description=(
+            f"Benvenuto nel regolamento ufficiale di **{BRAND_NAME}**.\n\n"
+            "Per mantenere una community sana, rispettosa e professionale,\n"
+            "tutti i membri devono seguire queste regole."
+        ),
+        color=BRAND_COLOR
+    )
+
+    embed.add_field(
+        name="1️⃣ Rispetto Community",
+        value=(
+            "• Rispetta tutti i membri\n"
+            "• No flame o tossicità\n"
+            "• Mantieni un clima civile"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="2️⃣ Spam & Promo",
+        value=(
+            "• Vietato spam o flood\n"
+            "• Promo solo nei canali dedicati\n"
+            "• Evita contenuti inutili"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="3️⃣ Voice & RP",
+        value=(
+            "• Mantieni comportamento corretto\n"
+            "• Evita troll e disturbatori\n"
+            "• Rispetta creator e staff"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="4️⃣ Staff & Sicurezza",
+        value=(
+            "• Lo staff può intervenire\n"
+            "• Segui le indicazioni della moderazione\n"
+            "• Evita comportamenti dannosi"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="🌅 Filosofia Community",
+        value=(
+            "Rispetto • Passione • Community\n\n"
+            "Insieme costruiamo la migliore community RedM italiana."
+        ),
+        inline=False
+    )
+
+    apply_brand(embed, interaction.guild)
+
+    file = make_file(BANNER_REGOLE, "banner_regole.png")
+
+    if file:
+        embed.set_image(url="attachment://banner_regole.png")
+
+        await interaction.channel.send(
+            file=file,
+            embed=embed
+        )
+    else:
+        await interaction.channel.send(
+            embed=embed
+        )
+
+    await interaction.response.send_message(
+        "✅ Pannello regolamento pubblicato.",
         ephemeral=True
     )
 
