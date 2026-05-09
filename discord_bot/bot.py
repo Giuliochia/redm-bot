@@ -6,13 +6,16 @@ import aiohttp
 import discord
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = int(os.getenv("GUILD_ID", "0"))
+
+TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
+TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
 
 GUILD_OBJECT = discord.Object(id=GUILD_ID)
 
@@ -28,6 +31,7 @@ ROLE_NEW_KEYWORD = "nuovo arrivato"
 
 CHANNEL_LOG_KEYWORD = "admin-logs"
 CHANNEL_WELCOME_KEYWORD = "benvenuti"
+CHANNEL_LIVE_STREAMS_KEYWORD = "live-streams"
 
 TICKET_CATEGORY_NAME = "🎫 | TICKET"
 TICKET_CATEGORY_KEYWORD = "ticket"
@@ -40,6 +44,18 @@ BANNER_DISCORD = os.path.join(ASSETS_DIR, "banner_discord.png")
 BANNER_REGOLE = os.path.join(ASSETS_DIR, "banner_regole.png")
 WELCOME_BANNER = os.path.join(ASSETS_DIR, "welcome_banner.png")
 LOGO_IMAGE = os.path.join(ASSETS_DIR, "logo.png")
+
+TWITCH_STREAMERS = [
+    "tuma_tv"
+]
+
+REDM_KEYWORDS = [
+    "redm",
+    "red dead roleplay",
+    "red dead rp",
+    "rdr2 rp",
+    "wild west rp"
+]
 
 TICKET_STAFF_ROLE_KEYWORDS = [
     "founder",
@@ -56,6 +72,8 @@ SETUP_ALLOWED_ROLE_KEYWORDS = [
 ]
 
 ticket_claims = {}
+twitch_access_token = None
+announced_live_streams = set()
 
 ROLE_OPTIONS = {
     "player": {
@@ -246,6 +264,20 @@ def get_ticket_owner_id(channel):
         return None
 
 
+def is_redm_stream(stream_data):
+    title = stream_data.get("title", "").lower()
+    game_name = stream_data.get("game_name", "").lower()
+    tags = " ".join(stream_data.get("tags", [])).lower()
+
+    combined_text = f"{title} {game_name} {tags}"
+
+    for keyword in REDM_KEYWORDS:
+        if keyword in combined_text:
+            return True
+
+    return False
+
+
 async def get_or_create_ticket_category(guild):
     category = find_category(guild, TICKET_CATEGORY_KEYWORD)
 
@@ -313,6 +345,185 @@ async def generate_ticket_transcript(channel):
         transcript_bytes,
         filename=f"{channel.name}-transcript.txt"
     )
+
+
+async def get_twitch_access_token():
+    global twitch_access_token
+
+    if not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET:
+        print("⚠️ Variabili Twitch non configurate.")
+        return None
+
+    url = "https://id.twitch.tv/oauth2/token"
+
+    params = {
+        "client_id": TWITCH_CLIENT_ID,
+        "client_secret": TWITCH_CLIENT_SECRET,
+        "grant_type": "client_credentials"
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, params=params) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    print(f"❌ Errore Twitch token: {response.status} {text}")
+                    return None
+
+                data = await response.json()
+                twitch_access_token = data.get("access_token")
+                return twitch_access_token
+
+    except Exception:
+        print("❌ ERRORE GET TWITCH TOKEN")
+        traceback.print_exc()
+        return None
+
+
+async def fetch_twitch_streams():
+    global twitch_access_token
+
+    if not TWITCH_STREAMERS:
+        return []
+
+    if not twitch_access_token:
+        twitch_access_token = await get_twitch_access_token()
+
+    if not twitch_access_token:
+        return []
+
+    headers = {
+        "Client-ID": TWITCH_CLIENT_ID,
+        "Authorization": f"Bearer {twitch_access_token}"
+    }
+
+    params = []
+
+    for streamer in TWITCH_STREAMERS:
+        params.append(("user_login", streamer))
+
+    url = "https://api.twitch.tv/helix/streams"
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, params=params) as response:
+                if response.status == 401:
+                    print("⚠️ Twitch token scaduto, rigenero token.")
+                    twitch_access_token = await get_twitch_access_token()
+
+                    if not twitch_access_token:
+                        return []
+
+                    headers["Authorization"] = f"Bearer {twitch_access_token}"
+
+                    async with session.get(url, headers=headers, params=params) as retry_response:
+                        if retry_response.status != 200:
+                            text = await retry_response.text()
+                            print(f"❌ Errore Twitch streams retry: {retry_response.status} {text}")
+                            return []
+
+                        retry_data = await retry_response.json()
+                        return retry_data.get("data", [])
+
+                if response.status != 200:
+                    text = await response.text()
+                    print(f"❌ Errore Twitch streams: {response.status} {text}")
+                    return []
+
+                data = await response.json()
+                return data.get("data", [])
+
+    except Exception:
+        print("❌ ERRORE FETCH TWITCH STREAMS")
+        traceback.print_exc()
+        return []
+
+
+@tasks.loop(minutes=2)
+async def twitch_live_checker():
+    try:
+        guild = bot.get_guild(GUILD_ID)
+
+        if not guild:
+            print("⚠️ Guild non trovata per Twitch checker.")
+            return
+
+        live_channel = find_channel(guild, CHANNEL_LIVE_STREAMS_KEYWORD)
+
+        if not live_channel:
+            print("⚠️ Canale live-streams non trovato.")
+            return
+
+        verified_role = find_role(guild, ROLE_VERIFIED_KEYWORD)
+
+        streams = await fetch_twitch_streams()
+        currently_live_redm = set()
+
+        for stream in streams:
+            streamer_login = stream.get("user_login", "").lower()
+            streamer_name = stream.get("user_name", streamer_login)
+            stream_title = stream.get("title", "")
+            stream_url = f"https://www.twitch.tv/{streamer_login}"
+
+            if not streamer_login:
+                continue
+
+            if not is_redm_stream(stream):
+                if streamer_login in announced_live_streams:
+                    announced_live_streams.discard(streamer_login)
+
+                continue
+
+            currently_live_redm.add(streamer_login)
+
+            if streamer_login in announced_live_streams:
+                continue
+
+            mention = verified_role.mention if verified_role else ""
+
+            message = (
+                f"{mention}\n\n"
+                f"🔴 **{streamer_name} è live su RedM!**\n\n"
+                f"📌 **Titolo:** {stream_title}\n"
+                f"📺 Guarda ora:\n"
+                f"{stream_url}"
+            ).strip()
+
+            await live_channel.send(
+                content=message,
+                allowed_mentions=discord.AllowedMentions(
+                    roles=True,
+                    everyone=False,
+                    users=False
+                )
+            )
+
+            announced_live_streams.add(streamer_login)
+
+            await send_admin_log(
+                guild,
+                "🔴 Live RedM pubblicata",
+                (
+                    f"Streamer: **{streamer_name}**\n"
+                    f"Titolo: `{stream_title}`\n"
+                    f"Link: {stream_url}"
+                ),
+                color=DANGER_COLOR
+            )
+
+        offline_streamers = announced_live_streams - currently_live_redm
+
+        for streamer_login in list(offline_streamers):
+            announced_live_streams.discard(streamer_login)
+
+    except Exception:
+        print("❌ ERRORE TWITCH LIVE CHECKER")
+        traceback.print_exc()
+
+
+@twitch_live_checker.before_loop
+async def before_twitch_live_checker():
+    await bot.wait_until_ready()
 
 
 def get_font(size):
@@ -1039,6 +1250,10 @@ async def on_ready():
             name=BRAND_NAME
         )
     )
+
+    if not twitch_live_checker.is_running():
+        twitch_live_checker.start()
+        print("✅ Twitch Live Checker avviato.")
 
     try:
         print("📌 Comandi locali registrati:")
