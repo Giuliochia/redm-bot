@@ -31,6 +31,8 @@ WARNING_COLOR = 0xF1C40F
 
 ROLE_VERIFIED_KEYWORD = "verified"
 ROLE_NEW_KEYWORD = "nuovo arrivato"
+ROLE_CREATOR_KEYWORD = "creator"
+ROLE_PARTNER_KEYWORD = "partner"
 
 CHANNEL_LOG_KEYWORD = "admin-logs"
 CHANNEL_WELCOME_KEYWORD = "benvenuti"
@@ -651,6 +653,12 @@ async def fetch_twitch_streams():
 
         return []
 
+def member_has_role(member, keyword):
+    return any(
+        keyword.lower() in role.name.lower()
+        for role in member.roles
+    )
+
 
 @tasks.loop(minutes=2)
 async def twitch_live_checker():
@@ -739,7 +747,35 @@ async def twitch_live_checker():
             if not streamer_login:
                 continue
 
-            if not is_redm_stream(stream):
+            if not streamer_config:
+                continue
+
+            discord_member = guild.get_member(
+                streamer_config["discord_id"]
+            )
+
+            if not discord_member:
+                continue
+
+            is_creator = member_has_role(
+                discord_member,
+                ROLE_CREATOR_KEYWORD
+            )
+
+            is_partner = member_has_role(
+                discord_member,
+                ROLE_PARTNER_KEYWORD
+            )
+
+            allow_live = False
+
+            if is_partner:
+                allow_live = True
+
+            elif is_creator and is_redm_stream(stream):
+                allow_live = True
+
+            if not allow_live:
 
                 if streamer_login in announced_live_streams:
                     announced_live_streams.discard(
