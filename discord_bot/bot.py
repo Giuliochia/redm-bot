@@ -37,6 +37,7 @@ ROLE_PARTNER_KEYWORD = "partner"
 CHANNEL_LOG_KEYWORD = "admin-logs"
 CHANNEL_WELCOME_KEYWORD = "benvenuti"
 CHANNEL_LIVE_STREAMS_KEYWORD = "live-streams"
+CHANNEL_PROMO_SERVER_KEYWORD = "promozione-server"
 
 TICKET_CATEGORY_NAME = "🎫 | TICKET"
 TICKET_CATEGORY_KEYWORD = "ticket"
@@ -325,7 +326,90 @@ def get_ticket_owner_id(channel):
         return channel.topic.split("ticket_owner:")[1].split(" ")[0]
     except Exception:
         return None
+def extract_form_value(content, field_name):
+    lines = content.splitlines()
 
+    for line in lines:
+        if ":" not in line:
+            continue
+
+        key, value = line.split(":", 1)
+
+        if key.strip().lower() == field_name.lower():
+            return value.strip()
+
+    return ""
+
+
+def parse_server_promotion_form(content):
+    return {
+        "nome_server": extract_form_value(content, "Nome server"),
+        "link_discord": extract_form_value(content, "Link Discord"),
+        "descrizione": extract_form_value(content, "Descrizione"),
+        "stile_server": extract_form_value(content, "Stile server"),
+        "accesso": extract_form_value(content, "Accesso"),
+        "lingua": extract_form_value(content, "Lingua"),
+        "logo": extract_form_value(content, "Logo")
+    }
+
+
+def is_valid_discord_invite(link):
+    link = link.strip().lower()
+
+    return (
+        link.startswith("https://discord.gg/")
+        or link.startswith("https://discord.com/invite/")
+    )
+
+
+class ServerPromotionLinkView(discord.ui.View):
+    def __init__(self, discord_link):
+        super().__init__(timeout=None)
+
+        self.add_item(
+            discord.ui.Button(
+                label="Entra nel Discord",
+                emoji="🔗",
+                style=discord.ButtonStyle.link,
+                url=discord_link
+            )
+        )    
+async def get_server_promotion_logo_file(form_message, channel, owner):
+    image_attachment = None
+
+    for attachment in form_message.attachments:
+        if attachment.content_type and attachment.content_type.startswith("image/"):
+            image_attachment = attachment
+            break
+
+    if not image_attachment:
+        async for message in channel.history(limit=30, oldest_first=False):
+            if message.author.id != owner.id:
+                continue
+
+            for attachment in message.attachments:
+                if attachment.content_type and attachment.content_type.startswith("image/"):
+                    image_attachment = attachment
+                    break
+
+            if image_attachment:
+                break
+
+    if not image_attachment:
+        return None
+
+    try:
+        image_bytes = await image_attachment.read()
+
+        return discord.File(
+            io.BytesIO(image_bytes),
+            filename="server_logo.png"
+        )
+
+    except Exception:
+        print("❌ ERRORE LETTURA LOGO SERVER")
+        traceback.print_exc()
+        return None
 
 def is_redm_stream(stream_data):
     title = stream_data.get("title", "").lower()
@@ -1587,6 +1671,245 @@ class CreatorApplicationView(discord.ui.View):
             "❌ Candidatura creator rifiutata.",
             ephemeral=True
         )
+class ServerPromotionApplicationView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Approva Server",
+        emoji="✅",
+        style=discord.ButtonStyle.success,
+        custom_id="redm_server_promotion_approve"
+    )
+    async def approve_server(self, interaction, button):
+        guild = interaction.guild
+        staff_member = interaction.user
+        channel = interaction.channel
+
+        if not guild or not isinstance(staff_member, discord.Member):
+            return
+
+        if not isinstance(channel, discord.TextChannel):
+            return
+
+        if not member_is_ticket_staff(staff_member):
+            await interaction.response.send_message(
+                "❌ Solo lo staff può approvare una promozione server.",
+                ephemeral=True
+            )
+            return
+
+        owner_id = get_ticket_owner_id(channel)
+
+        if not owner_id:
+            await interaction.response.send_message(
+                "❌ Proprietario ticket non trovato.",
+                ephemeral=True
+            )
+            return
+
+        owner = guild.get_member(int(owner_id))
+
+        if not owner:
+            await interaction.response.send_message(
+                "❌ Utente proprietario del ticket non trovato.",
+                ephemeral=True
+            )
+            return
+
+        form_message = None
+
+        async for message in channel.history(limit=50, oldest_first=False):
+            if message.author.id == owner.id and "Nome server:" in message.content:
+                form_message = message
+                break
+
+        if not form_message:
+            await interaction.response.send_message(
+                "❌ Modulo promozione server non trovato. "
+                "L'utente deve compilare il form nel ticket.",
+                ephemeral=True
+            )
+            return
+
+        form_data = parse_server_promotion_form(form_message.content)
+
+        nome_server = form_data["nome_server"]
+        link_discord = form_data["link_discord"]
+        descrizione = form_data["descrizione"]
+        stile_server = form_data["stile_server"]
+        accesso = form_data["accesso"]
+        lingua = form_data["lingua"]
+
+        if not nome_server or not link_discord or not descrizione:
+            await interaction.response.send_message(
+                "❌ Il form è incompleto. Devono esserci almeno Nome server, Link Discord e Descrizione.",
+                ephemeral=True
+            )
+            return
+
+        if not is_valid_discord_invite(link_discord):
+            await interaction.response.send_message(
+                "❌ Link Discord non valido. Deve essere `https://discord.gg/...` oppure `https://discord.com/invite/...`.",
+                ephemeral=True
+            )
+            return
+
+        promo_channel = find_channel(
+            guild,
+            CHANNEL_PROMO_SERVER_KEYWORD
+        )
+
+        if not promo_channel:
+            await interaction.response.send_message(
+                "❌ Canale promozione-server non trovato.",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title=f"🌐 {nome_server}",
+            description=descrizione,
+            color=BRAND_COLOR,
+            url=link_discord
+        )
+
+        embed.add_field(
+            name="🎮 Stile server",
+            value=stile_server if stile_server else "Non specificato",
+            inline=True
+        )
+
+        embed.add_field(
+            name="🔐 Accesso",
+            value=accesso if accesso else "Non specificato",
+            inline=True
+        )
+
+        embed.add_field(
+            name="🌍 Lingua",
+            value=lingua if lingua else "Non specificata",
+            inline=True
+        )
+
+        embed.add_field(
+            name="🤝 Proposto da",
+            value=owner.mention,
+            inline=False
+        )
+
+        embed.add_field(
+            name="📌 Come entrare",
+            value="Clicca il bottone qui sotto per entrare nel Discord del server.",
+            inline=False
+        )
+
+        logo_file = await get_server_promotion_logo_file(
+        form_message,
+        channel,
+        owner
+)
+
+        if logo_file:
+            embed.set_thumbnail(url="attachment://server_logo.png")
+
+        embed.set_footer(
+            text=f"{BRAND_NAME} • Server Promotion System"
+        )
+
+        if logo_file:
+            await promo_channel.send(
+                embed=embed,
+                file=logo_file,
+                view=ServerPromotionLinkView(link_discord)
+            )
+        else:
+            await promo_channel.send(
+                embed=embed,
+                view=ServerPromotionLinkView(link_discord)
+            )
+
+        approved_embed = discord.Embed(
+            title="✅ Server approvato",
+            description=(
+                f"Il server **{nome_server}** è stato pubblicato in {promo_channel.mention}."
+            ),
+            color=SUCCESS_COLOR
+        )
+
+        apply_brand(approved_embed, guild)
+
+        await channel.send(embed=approved_embed)
+
+        await send_admin_log(
+            guild,
+            "✅ Server promosso",
+            (
+                f"Server: **{nome_server}**\n"
+                f"Proposto da: {owner.mention}\n"
+                f"Approvato da: {staff_member.mention}\n"
+                f"Canale: {promo_channel.mention}\n"
+                f"Link: {link_discord}"
+            ),
+            color=SUCCESS_COLOR
+        )
+
+        await interaction.response.send_message(
+            "✅ Server approvato e pubblicato.",
+            ephemeral=True
+        )
+
+    @discord.ui.button(
+        label="Rifiuta Server",
+        emoji="❌",
+        style=discord.ButtonStyle.danger,
+        custom_id="redm_server_promotion_reject"
+    )
+    async def reject_server(self, interaction, button):
+        guild = interaction.guild
+        staff_member = interaction.user
+        channel = interaction.channel
+
+        if not guild or not isinstance(staff_member, discord.Member):
+            return
+
+        if not isinstance(channel, discord.TextChannel):
+            return
+
+        if not member_is_ticket_staff(staff_member):
+            await interaction.response.send_message(
+                "❌ Solo lo staff può rifiutare una promozione server.",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title="❌ Promozione server rifiutata",
+            description=(
+                "La richiesta di promozione server non è stata approvata.\n\n"
+                "Lo staff può lasciare una motivazione nel ticket prima della chiusura."
+            ),
+            color=DANGER_COLOR
+        )
+
+        apply_brand(embed, guild)
+
+        await channel.send(embed=embed)
+
+        await send_admin_log(
+            guild,
+            "❌ Promozione server rifiutata",
+            (
+                f"Staff: {staff_member.mention}\n"
+                f"Ticket: {channel.mention}"
+            ),
+            color=DANGER_COLOR
+        )
+
+        await interaction.response.send_message(
+            "❌ Promozione server rifiutata.",
+            ephemeral=True
+        )
 class TicketSelect(discord.ui.Select):
     def __init__(self):
         options = []
@@ -1734,11 +2057,47 @@ class TicketSelect(discord.ui.Select):
                     interaction.guild
                 )
 
-            await channel.send(
+                await channel.send(
                     content=interaction.user.mention,
                     embed=creator_embed,
                     view=CreatorApplicationView()
-)
+                )
+
+            if ticket_type == "promozione_server":
+                server_promo_embed = discord.Embed(
+                    title="🌐 Promozione Server",
+                    description=(
+                        "Compila il modulo qui sotto copiandolo e rispondendo in questo ticket.\n\n"
+                        "```text\n"
+                        "Nome server:\n"
+                        "Link Discord:\n"
+                        "Descrizione:\n"
+                        "Stile server:\n"
+                        "Accesso:\n"
+                        "Lingua:\n"
+                        "```\n"
+                        "**Suggerimenti:**\n"
+                        "• Nome server: Es. WildWest RP\n"
+                        "• Link Discord: https://discord.gg/tuoserver\n"
+                        "• Descrizione: breve descrizione del server\n"
+                        "• Stile server: roleplay realistico, western classico, roleplay immersivo\n"
+                        "• Accesso: Whitelist / No Whitelist\n"
+                        "• Lingua: Italiano\n"
+                        "• Logo: allega l'immagine del logo insieme al modulo"
+                    ),
+                    color=BRAND_COLOR
+                )
+
+                apply_brand(
+                    server_promo_embed,
+                    interaction.guild
+                )
+
+                await channel.send(
+                    content=interaction.user.mention,
+                    embed=server_promo_embed,
+                    view=ServerPromotionApplicationView()
+                )
 
             await send_admin_log(
                 guild,
@@ -1784,6 +2143,7 @@ async def on_ready():
     bot.add_view(TicketPanelView())
     bot.add_view(TicketControlView())
     bot.add_view(CreatorApplicationView())
+    bot.add_view(ServerPromotionApplicationView())
 
     await bot.change_presence(
         activity=discord.Activity(
