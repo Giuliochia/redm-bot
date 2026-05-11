@@ -1,3 +1,4 @@
+from email.mime import message
 import os
 import io
 import asyncio
@@ -1671,9 +1672,107 @@ class CreatorApplicationView(discord.ui.View):
             "❌ Candidatura creator rifiutata.",
             ephemeral=True
         )
+class ServerPromotionModal(discord.ui.Modal):
+    def __init__(self):
+        super().__init__(
+            title="Promozione Server"
+        )
+
+        self.nome_server = discord.ui.TextInput(
+            label="Nome server",
+            placeholder="Es: WildWest RP",
+            max_length=80,
+            required=True
+        )
+
+        self.link_discord = discord.ui.TextInput(
+            label="Link Discord",
+            placeholder="https://discord.gg/tuoserver",
+            max_length=120,
+            required=True
+        )
+
+        self.descrizione = discord.ui.TextInput(
+            label="Descrizione",
+            placeholder="Breve descrizione del tuo server RedM",
+            style=discord.TextStyle.paragraph,
+            max_length=500,
+            required=True
+        )
+
+        self.stile_server = discord.ui.TextInput(
+            label="Stile server",
+            placeholder="Es: roleplay realistico, western classico",
+            max_length=100,
+            required=True
+        )
+
+        self.accesso_lingua = discord.ui.TextInput(
+            label="Accesso e lingua",
+            placeholder="Es: Whitelist / Italiano",
+            max_length=100,
+            required=True
+        )
+
+        self.add_item(self.nome_server)
+        self.add_item(self.link_discord)
+        self.add_item(self.descrizione)
+        self.add_item(self.stile_server)
+        self.add_item(self.accesso_lingua)
+
+    async def on_submit(self, interaction):
+        accesso = self.accesso_lingua.value
+        lingua = "Italiano"
+
+        if "/" in self.accesso_lingua.value:
+            parts = self.accesso_lingua.value.split("/", 1)
+            accesso = parts[0].strip()
+            lingua = parts[1].strip()
+
+        content = (
+            f"PROMO_SERVER_OWNER:{interaction.user.id}\n\n"
+            f"Nome server: {self.nome_server.value}\n"
+            f"Link Discord: {self.link_discord.value}\n"
+            f"Descrizione: {self.descrizione.value}\n"
+            f"Stile server: {self.stile_server.value}\n"
+            f"Accesso: {accesso}\n"
+            f"Lingua: {lingua}"
+        )
+
+        embed = discord.Embed(
+            title="📎 Step 2 — Carica il logo",
+            description=(
+                "Modulo ricevuto correttamente.\n\n"
+                "Ora carica nel ticket il **logo del server** come file immagine.\n\n"
+                "Formati consigliati: `.png`, `.jpg`, `.jpeg`.\n"
+                "Non incollare link, inviti Discord o anteprime."
+            ),
+            color=BRAND_COLOR
+        )
+
+        apply_brand(
+            embed,
+            interaction.guild
+        )
+
+        await interaction.response.send_message(
+            content=content,
+            embed=embed
+        )
 class ServerPromotionApplicationView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
+    
+    @discord.ui.button(
+        label="Compila modulo",
+        emoji="📝",
+        style=discord.ButtonStyle.primary,
+        custom_id="redm_server_promotion_form"
+    )
+    async def open_form(self, interaction, button):
+        await interaction.response.send_modal(
+            ServerPromotionModal()
+        )
 
     @discord.ui.button(
         label="Approva Server",
@@ -1720,7 +1819,10 @@ class ServerPromotionApplicationView(discord.ui.View):
         form_message = None
 
         async for message in channel.history(limit=50, oldest_first=False):
-            if message.author.id == owner.id and "Nome server:" in message.content:
+            if (
+                f"PROMO_SERVER_OWNER:{owner.id}" in message.content
+                and "Nome server:" in message.content
+            ):
                 form_message = message
                 break
 
@@ -2067,25 +2169,12 @@ class TicketSelect(discord.ui.Select):
                 server_promo_embed = discord.Embed(
                     title="🌐 Promozione Server",
                     description=(
-                        "Compila il modulo qui sotto copiandolo e rispondendo in questo ticket.\n\n"
-                        "```text\n"
-                        "Nome server:\n"
-                        "Link Discord:\n"
-                        "Descrizione:\n"
-                        "Stile server:\n"
-                        "Accesso:\n"
-                        "Lingua:\n"
-                        "```\n"
-                        "**Suggerimenti:**\n"
-                        "• Nome server: Es. WildWest RP\n"
-                        "• Link Discord: https://discord.gg/tuoserver\n"
-                        "• Descrizione: breve descrizione del server\n"
-                        "• Stile server: roleplay realistico, western classico, roleplay immersivo\n"
-                        "• Accesso: Whitelist / No Whitelist\n"
-                        "• Lingua: Italiano\n"
-                        "• Logo: carica un file immagine reale nel ticket insieme al modulo.\n"
-                        "  Non incollare link, inviti Discord o anteprime.\n"
-                        "  Usa un file .png, .jpg o .jpeg trascinandolo nel messaggio."
+                        "Per proporre un server RedM alla community:\n\n"
+                        "1️⃣ Clicca il pulsante **📝 Compila modulo**\n"
+                        "2️⃣ Inserisci i dati richiesti nel popup\n"
+                        "3️⃣ Dopo l'invio, allega nel ticket il logo del server\n"
+                        "4️⃣ Attendi la verifica dello staff\n\n"
+                        "Se approvato, il bot pubblicherà automaticamente il server nel canale promozione."
                     ),
                     color=BRAND_COLOR
                 )
