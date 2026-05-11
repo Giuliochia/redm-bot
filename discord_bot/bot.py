@@ -2083,7 +2083,9 @@ class TicketSelect(discord.ui.Select):
                         "• Stile server: roleplay realistico, western classico, roleplay immersivo\n"
                         "• Accesso: Whitelist / No Whitelist\n"
                         "• Lingua: Italiano\n"
-                        "• Logo: allega l'immagine del logo insieme al modulo"
+                        "• Logo: carica un file immagine reale nel ticket insieme al modulo.\n"
+                        "  Non incollare link, inviti Discord o anteprime.\n"
+                        "  Usa un file .png, .jpg o .jpeg trascinandolo nel messaggio."
                     ),
                     color=BRAND_COLOR
                 )
