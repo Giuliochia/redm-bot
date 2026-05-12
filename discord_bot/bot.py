@@ -1,4 +1,3 @@
-from email.mime import message
 import os
 import io
 import asyncio
@@ -6,6 +5,9 @@ import traceback
 import aiohttp
 import discord
 import re
+import sys
+import logging
+from logging.handlers import RotatingFileHandler
 
 from collections import defaultdict, deque
 from datetime import timedelta
@@ -15,11 +17,61 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Logging configuration
+LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+
+# Create logger
+logger = logging.getLogger("redm_bot")
+logger.setLevel(logging.INFO)
+
+# Formatter
+formatter = logging.Formatter(LOG_FORMAT)
+
+# Console handler
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
+# File handler (rotating)
+logs_dir = os.path.join(os.path.dirname(__file__), "logs")
+os.makedirs(logs_dir, exist_ok=True)
+file_handler = RotatingFileHandler(
+    os.path.join(logs_dir, "redm_bot.log"),
+    maxBytes=5 * 1024 * 1024,
+    backupCount=5,
+    encoding="utf-8"
+)
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# Prevent double logging to root handlers
+logger.propagate = False
+
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-GUILD_ID = int(os.getenv("GUILD_ID", "0"))
+GUILD_ID_ENV = os.getenv("GUILD_ID", "")
+
+try:
+    GUILD_ID = int(GUILD_ID_ENV) if GUILD_ID_ENV else 0
+except Exception:
+    logger.critical("GUILD_ID non numerico: %s. Uscita.", GUILD_ID_ENV)
+    sys.exit(1)
+
+if not GUILD_ID:
+    logger.critical("GUILD_ID non impostato o zero. Uscita.")
+    sys.exit(1)
 
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
+
+# Log environment status (non-sensitive)
+if not DISCORD_TOKEN:
+    logger.error("DISCORD_TOKEN non impostato. Il bot non potrà connettersi.")
+
+if GUILD_ID == 0:
+    logger.warning("GUILD_ID non impostato o zero — alcune funzioni potrebbero non trovare la guild corretta.")
+
+if not (TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET):
+    logger.info("Credenziali Twitch mancanti: Twitch Live Checker verrà disabilitato.")
 
 GUILD_OBJECT = discord.Object(id=GUILD_ID)
 
@@ -208,7 +260,7 @@ bot = commands.Bot(
 
 def make_file(path, filename):
     if not os.path.exists(path):
-        print(f"⚠️ Asset non trovato: {path}")
+        logger.warning("Asset non trovato: %s", path)
         return None
 
     return discord.File(path, filename=filename)
@@ -408,7 +460,7 @@ async def get_server_promotion_logo_file(form_message, channel, owner):
         )
 
     except Exception:
-        print("❌ ERRORE LETTURA LOGO SERVER")
+        logger.exception("ERRORE LETTURA LOGO SERVER")
         traceback.print_exc()
         return None
 
@@ -448,7 +500,7 @@ async def send_admin_log(
     channel = find_channel(guild, CHANNEL_LOG_KEYWORD)
 
     if not channel:
-        print("⚠️ Canale admin-logs non trovato.")
+        logger.warning("Canale admin-logs non trovato.")
         return
 
     embed = discord.Embed(
@@ -549,11 +601,11 @@ async def automod_timeout(member, seconds, reason):
         return True
 
     except discord.Forbidden:
-        print("⚠️ AutoMod non può mettere timeout: permessi insufficienti.")
+        logger.warning("AutoMod non può mettere timeout: permessi insufficienti.")
         return False
 
     except Exception:
-        print("❌ ERRORE AUTOMOD TIMEOUT")
+        logger.exception("ERRORE AUTOMOD TIMEOUT")
         traceback.print_exc()
         return False
 
@@ -564,11 +616,11 @@ async def automod_delete_message(message):
         return True
 
     except discord.Forbidden:
-        print("⚠️ AutoMod non può eliminare messaggi: permessi insufficienti.")
+        logger.warning("AutoMod non può eliminare messaggi: permessi insufficienti.")
         return False
 
     except Exception:
-        print("❌ ERRORE AUTOMOD DELETE")
+        logger.exception("ERRORE AUTOMOD DELETE")
         traceback.print_exc()
         return False
 
@@ -606,7 +658,7 @@ async def get_twitch_access_token():
     global twitch_access_token
 
     if not TWITCH_CLIENT_ID or not TWITCH_CLIENT_SECRET:
-        print("⚠️ Variabili Twitch non configurate.")
+        logger.warning("Variabili Twitch non configurate. Impossibile ottenere token Twitch.")
         return None
 
     url = "https://id.twitch.tv/oauth2/token"
@@ -622,7 +674,7 @@ async def get_twitch_access_token():
             async with session.post(url, params=params) as response:
                 if response.status != 200:
                     text = await response.text()
-                    print(f"❌ Errore Twitch token: {response.status} {text}")
+                    logger.error("Errore Twitch token: %s %s", response.status, text)
                     return None
 
                 data = await response.json()
@@ -630,8 +682,7 @@ async def get_twitch_access_token():
                 return twitch_access_token
 
     except Exception:
-        print("❌ ERRORE GET TWITCH TOKEN")
-        traceback.print_exc()
+        logger.exception("ERRORE GET TWITCH TOKEN")
         return None
 
 
@@ -687,7 +738,7 @@ async def fetch_twitch_streams():
             ) as response:
 
                 if response.status == 401:
-                    print("⚠️ Twitch token scaduto, rigenero token.")
+                    logger.info("Twitch token scaduto, rigenero token.")
 
                     twitch_access_token = await get_twitch_access_token()
 
@@ -706,10 +757,10 @@ async def fetch_twitch_streams():
 
                         if retry_response.status != 200:
                             text = await retry_response.text()
-
-                            print(
-                                f"❌ Errore Twitch streams retry: "
-                                f"{retry_response.status} {text}"
+                            logger.error(
+                                "Errore Twitch streams retry: %s %s",
+                                retry_response.status,
+                                text
                             )
 
                             return []
@@ -720,11 +771,7 @@ async def fetch_twitch_streams():
 
                 if response.status != 200:
                     text = await response.text()
-
-                    print(
-                        f"❌ Errore Twitch streams: "
-                        f"{response.status} {text}"
-                    )
+                    logger.error("Errore Twitch streams: %s %s", response.status, text)
 
                     return []
 
@@ -733,8 +780,7 @@ async def fetch_twitch_streams():
                 return data.get("data", [])
 
     except Exception:
-        print("❌ ERRORE FETCH TWITCH STREAMS")
-        traceback.print_exc()
+        logger.exception("ERRORE FETCH TWITCH STREAMS")
 
         return []
 
@@ -751,7 +797,7 @@ async def twitch_live_checker():
         guild = bot.get_guild(GUILD_ID)
 
         if not guild:
-            print("⚠️ Guild non trovata per Twitch checker.")
+            logger.warning("Guild non trovata per Twitch checker.")
             return
 
         live_channel = find_channel(
@@ -760,7 +806,7 @@ async def twitch_live_checker():
         )
 
         if not live_channel:
-            print("⚠️ Canale live-streams non trovato.")
+            logger.warning("Canale live-streams non trovato.")
             return
 
         verified_role = find_role(
@@ -966,7 +1012,7 @@ async def twitch_live_checker():
             )
 
     except Exception:
-        print("❌ ERRORE TWITCH LIVE CHECKER")
+        logger.exception("ERRORE TWITCH LIVE CHECKER")
         traceback.print_exc()
 
 
@@ -1018,7 +1064,7 @@ def make_circle_avatar(avatar_image, size):
 
 async def generate_welcome_card(member):
     if not os.path.exists(WELCOME_BANNER):
-        print("⚠️ welcome_banner.png non trovato.")
+        logger.warning("welcome_banner.png non trovato.")
         return None
 
     background = Image.open(WELCOME_BANNER).convert("RGBA")
@@ -1107,7 +1153,7 @@ async def send_welcome_message(member):
     channel = find_channel(guild, CHANNEL_WELCOME_KEYWORD)
 
     if not channel:
-        print("⚠️ Canale benvenuti non trovato.")
+        logger.warning("Canale benvenuti non trovato.")
         return
 
     embed = discord.Embed(
@@ -1215,7 +1261,7 @@ class RolePickerView(discord.ui.View):
             )
 
         except Exception:
-            print("❌ ERRORE ROLE PICKER")
+            logger.exception("ERRORE ROLE PICKER")
             traceback.print_exc()
 
             if not interaction.response.is_done():
@@ -1341,7 +1387,7 @@ class VerifyView(discord.ui.View):
             )
 
         except Exception:
-            print("❌ ERRORE VERIFICA")
+            logger.exception("ERRORE VERIFICA")
             traceback.print_exc()
 
             if not interaction.response.is_done():
@@ -1479,7 +1525,7 @@ class TicketControlView(discord.ui.View):
             )
 
         except Exception:
-            print("⚠️ ERRORE TRANSCRIPT/LOG CHIUSURA")
+            logger.exception("ERRORE TRANSCRIPT/LOG CHIUSURA")
             traceback.print_exc()
 
         await asyncio.sleep(5)
@@ -1492,7 +1538,7 @@ class TicketControlView(discord.ui.View):
             )
 
         except Exception:
-            print("❌ ERRORE ELIMINAZIONE TICKET")
+            logger.exception("ERRORE ELIMINAZIONE TICKET")
             traceback.print_exc()
 
 
@@ -1597,7 +1643,7 @@ class CreatorApplicationView(discord.ui.View):
             )
 
         except Exception:
-            print("❌ ERRORE APPROVAZIONE CREATOR")
+            logger.exception("ERRORE APPROVAZIONE CREATOR")
             traceback.print_exc()
 
             if not interaction.response.is_done():
@@ -2207,7 +2253,7 @@ class TicketSelect(discord.ui.Select):
             )
 
         except Exception:
-            print("❌ ERRORE APERTURA TICKET")
+            logger.exception("ERRORE APERTURA TICKET")
             traceback.print_exc()
 
             if not interaction.response.is_done():
@@ -2225,9 +2271,9 @@ class TicketPanelView(discord.ui.View):
 
 @bot.event
 async def on_ready():
-    print("━━━━━━━━━━━━━━━━━━")
-    print(f"✅ Bot online: {bot.user}")
-    print("━━━━━━━━━━━━━━━━━━")
+    logger.info("━━━━━━━━━━━━━━━━━━")
+    logger.info("Bot online: %s", bot.user)
+    logger.info("━━━━━━━━━━━━━━━━━━")
 
     bot.add_view(VerifyView())
     bot.add_view(RolePickerView())
@@ -2244,27 +2290,29 @@ async def on_ready():
     )
 
     if not twitch_live_checker.is_running():
-        twitch_live_checker.start()
-        print("✅ Twitch Live Checker avviato.")
+        if TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET:
+            twitch_live_checker.start()
+            logger.info("Twitch Live Checker avviato.")
+        else:
+            logger.info("Twitch Live Checker non avviato: credenziali Twitch mancanti.")
 
     try:
-        print("📌 Comandi locali registrati:")
+        logger.info("📌 Comandi locali registrati:")
 
         for command in bot.tree.get_commands():
-            print(f"   /{command.name}")
+            logger.info("   /%s", command.name)
 
         bot.tree.copy_global_to(guild=GUILD_OBJECT)
 
         synced = await bot.tree.sync(guild=GUILD_OBJECT)
 
-        print(f"✅ Slash commands sincronizzati: {len(synced)}")
+        logger.info("✅ Slash commands sincronizzati: %s", len(synced))
 
         for command in synced:
-            print(f"   /{command.name}")
+            logger.info("   /%s", command.name)
 
     except Exception:
-        print("❌ ERRORE SYNC SLASH COMMANDS")
-        traceback.print_exc()
+        logger.exception("ERRORE SYNC SLASH COMMANDS")
 
 
 @bot.event
@@ -2317,8 +2365,7 @@ async def on_member_join(member):
         )
 
     except Exception:
-        print("❌ ERRORE MEMBER JOIN")
-        traceback.print_exc()
+        logger.exception("ERRORE MEMBER JOIN")
 
 @bot.event
 async def on_message(message):
@@ -2449,8 +2496,7 @@ async def on_message(message):
         await bot.process_commands(message)
 
     except Exception:
-        print("❌ ERRORE AUTOMOD ON_MESSAGE")
-        traceback.print_exc()
+        logger.exception("ERRORE AUTOMOD ON_MESSAGE")
 
         try:
             await bot.process_commands(message)
@@ -3110,4 +3156,8 @@ async def setup_creator_guidelines(interaction):
         ephemeral=True
     )
 
-bot.run(DISCORD_TOKEN)
+if not DISCORD_TOKEN:
+    logger.critical("DISCORD_TOKEN non impostato. Uscita.")
+    sys.exit(1)
+else:
+    bot.run(DISCORD_TOKEN)

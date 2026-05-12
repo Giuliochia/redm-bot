@@ -1,4 +1,6 @@
 import os
+import sys
+import logging
 import re
 import json
 from datetime import datetime, timedelta, timezone
@@ -18,6 +20,21 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "391476319"))
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0"))
 PROMO_THREAD_ID = int(os.getenv("PROMO_THREAD_ID", "0"))
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+# Telegram logger
+tg_logger = logging.getLogger("redm_telegram")
+tg_logger.setLevel(logging.INFO)
+tg_handler = logging.StreamHandler()
+tg_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
+tg_logger.addHandler(tg_handler)
+
+if not TOKEN:
+    tg_logger.critical("TOKEN Telegram non impostato. Uscita.")
+    sys.exit(1)
+
+if not DATABASE_URL:
+    tg_logger.critical("DATABASE_URL non impostato. Uscita.")
+    sys.exit(1)
 
 PLAYER_THREAD_ID = 62
 STAFF_THREAD_ID = 63
@@ -1653,5 +1670,10 @@ app.add_handler(CallbackQueryHandler(button))
 
 app.add_handler(MessageHandler(filters.ChatType.GROUPS & filters.TEXT & ~filters.COMMAND, moderate_message))
 
-print("Bot avviato con PostgreSQL...")
+logger_message = "Bot avviato con PostgreSQL..."
+try:
+    print(logger_message)
+except Exception:
+    pass
+
 app.run_polling()
