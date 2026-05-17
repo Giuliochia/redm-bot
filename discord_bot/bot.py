@@ -8,6 +8,8 @@ import sys
 import logging
 from logging.handlers import RotatingFileHandler
 
+import db
+
 from collections import defaultdict, deque
 from datetime import timedelta
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
@@ -47,6 +49,7 @@ logger.addHandler(file_handler)
 logger.propagate = False
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+DATABASE_URL = os.getenv("DATABASE_URL")
 GUILD_ID_ENV = os.getenv("GUILD_ID", "")
 
 try:
@@ -65,6 +68,9 @@ TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
 # Log environment status (non-sensitive)
 if not DISCORD_TOKEN:
     logger.error("DISCORD_TOKEN non impostato. Il bot non potrà connettersi.")
+
+if not DATABASE_URL:
+    logger.error("DATABASE_URL non impostato. Il database non sarà disponibile.")
 
 
 if not (TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET):
@@ -133,9 +139,8 @@ SETUP_ALLOWED_ROLE_KEYWORDS = [
     "helper"
 ]
 
-ticket_claims = {}
 twitch_access_token = None
-announced_live_streams = set()
+announced_live_streams: set[str] = set()
 
 automod_message_cache = defaultdict(lambda: deque(maxlen=10))
 recent_join_times = deque(maxlen=50)
@@ -816,6 +821,7 @@ async def twitch_live_checker():
             ROLE_VERIFIED_KEYWORD
         )
 
+        db_streamers = await db.get_twitch_streamers()
         streams = await fetch_twitch_streams()
 
         currently_live_redm = set()
@@ -864,7 +870,7 @@ async def twitch_live_checker():
 
             streamer_config = next(
                 (
-                    item for item in TWITCH_STREAMERS
+                    item for item in db_streamers
                     if item["twitch_name"].lower() == streamer_login
                 ),
                 None
@@ -909,12 +915,9 @@ async def twitch_live_checker():
                 allow_live = True
 
             if not allow_live:
-
                 if streamer_login in announced_live_streams:
-                    announced_live_streams.discard(
-                        streamer_login
-                    )
-
+                    announced_live_streams.discard(streamer_login)
+                    await db.remove_announced_stream(streamer_login)
                 continue
 
             currently_live_redm.add(streamer_login)
@@ -985,9 +988,8 @@ async def twitch_live_checker():
                 )
             )
 
-            announced_live_streams.add(
-                streamer_login
-            )
+            announced_live_streams.add(streamer_login)
+            await db.add_announced_stream(streamer_login)
 
             await send_admin_log(
                 guild,
@@ -1003,15 +1005,11 @@ async def twitch_live_checker():
                 color=DANGER_COLOR
             )
 
-        offline_streamers = (
-            announced_live_streams
-            - currently_live_redm
-        )
+        offline_streamers = announced_live_streams - currently_live_redm
 
         for streamer_login in list(offline_streamers):
-            announced_live_streams.discard(
-                streamer_login
-            )
+            announced_live_streams.discard(streamer_login)
+            await db.remove_announced_stream(streamer_login)
 
     except Exception:
         logger.exception("ERRORE TWITCH LIVE CHECKER")
@@ -1431,7 +1429,7 @@ class TicketControlView(discord.ui.View):
             )
             return
 
-        claimed_by = ticket_claims.get(channel.id)
+        claimed_by = await db.get_ticket_claim(channel.id)
 
         if claimed_by:
             claimed_member = guild.get_member(claimed_by)
@@ -1443,7 +1441,7 @@ class TicketControlView(discord.ui.View):
             )
             return
 
-        ticket_claims[channel.id] = member.id
+        await db.set_ticket_claim(channel.id, member.id)
 
         embed = discord.Embed(
             title="📌 Ticket preso in carico",
@@ -1529,7 +1527,7 @@ class TicketControlView(discord.ui.View):
         await asyncio.sleep(5)
 
         try:
-            ticket_claims.pop(channel.id, None)
+            await db.delete_ticket_claim(channel.id)
 
             await channel.delete(
                 reason=f"Ticket chiuso da {member}"
@@ -2273,6 +2271,26 @@ async def on_ready():
     logger.info("━━━━━━━━━━━━━━━━━━")
     logger.info("Bot online: %s", bot.user)
     logger.info("━━━━━━━━━━━━━━━━━━")
+
+    if DATABASE_URL:
+        try:
+            await db.init(DATABASE_URL)
+
+            global announced_live_streams
+            announced_live_streams = await db.get_announced_streams()
+
+            for streamer in TWITCH_STREAMERS:
+                if not await db.streamer_exists(streamer["twitch_name"]):
+                    await db.add_twitch_streamer(
+                        streamer["twitch_name"],
+                        streamer["discord_id"]
+                    )
+                    logger.info("Streamer seedato nel DB: %s", streamer["twitch_name"])
+
+        except Exception:
+            logger.exception("ERRORE INIZIALIZZAZIONE DATABASE")
+    else:
+        logger.warning("DATABASE_URL mancante: funzionalità DB disabilitate.")
 
     bot.add_view(VerifyView())
     bot.add_view(RolePickerView())
@@ -3154,6 +3172,242 @@ async def setup_creator_guidelines(interaction):
         "✅ Linee guida creator pubblicate.",
         ephemeral=True
     )
+
+@bot.tree.command(
+    name="warn",
+    description="Assegna un avvertimento a un membro"
+)
+@discord.app_commands.describe(
+    membro="Il membro da avvertire",
+    motivo="Motivo dell'avvertimento"
+)
+async def warn(interaction, membro: discord.Member, motivo: str):
+    staff = interaction.user
+
+    if not isinstance(staff, discord.Member):
+        return
+
+    if not member_is_ticket_staff(staff):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi per usare questo comando.",
+            ephemeral=True
+        )
+        return
+
+    if membro.bot:
+        await interaction.response.send_message(
+            "❌ Non puoi avvertire un bot.",
+            ephemeral=True
+        )
+        return
+
+    await db.add_warn(membro.id, interaction.guild.id, motivo, staff.id)
+    warn_count = await db.count_warns(membro.id, interaction.guild.id)
+
+    embed = discord.Embed(
+        title="⚠️ Avvertimento",
+        description=(
+            f"{membro.mention} ha ricevuto un avvertimento.\n\n"
+            f"**Motivo:** {motivo}\n"
+            f"**Totale warn:** `{warn_count}`"
+        ),
+        color=WARNING_COLOR
+    )
+
+    apply_brand(embed, interaction.guild)
+
+    await interaction.response.send_message(embed=embed)
+
+    await send_admin_log(
+        interaction.guild,
+        "⚠️ Warn assegnato",
+        (
+            f"Utente: {membro.mention}\n"
+            f"Staff: {staff.mention}\n"
+            f"Motivo: {motivo}\n"
+            f"Totale warn: `{warn_count}`"
+        ),
+        color=WARNING_COLOR
+    )
+
+    if warn_count >= 3:
+        await automod_timeout(
+            membro,
+            600,
+            f"AutoMod: {warn_count} warn accumulati"
+        )
+
+        await send_admin_log(
+            interaction.guild,
+            "🚨 Timeout automatico per warn",
+            (
+                f"Utente: {membro.mention}\n"
+                f"Warn totali: `{warn_count}`\n"
+                f"Timeout: 10 minuti"
+            ),
+            color=DANGER_COLOR
+        )
+
+
+@bot.tree.command(
+    name="warns",
+    description="Mostra gli avvertimenti di un membro"
+)
+@discord.app_commands.describe(membro="Il membro di cui vedere i warn")
+async def warns(interaction, membro: discord.Member):
+    if not isinstance(interaction.user, discord.Member):
+        return
+
+    if not member_is_ticket_staff(interaction.user):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi per usare questo comando.",
+            ephemeral=True
+        )
+        return
+
+    warn_list = await db.get_warns(membro.id, interaction.guild.id)
+
+    if not warn_list:
+        await interaction.response.send_message(
+            f"✅ {membro.mention} non ha avvertimenti.",
+            ephemeral=True
+        )
+        return
+
+    lines = []
+
+    for i, w in enumerate(warn_list, 1):
+        data = w["created_at"].strftime("%d/%m/%Y %H:%M")
+        staff_mention = f"<@{w['staff_id']}>"
+        lines.append(f"`{i}.` {data} — {w['reason']} (da {staff_mention})")
+
+    embed = discord.Embed(
+        title=f"⚠️ Warn di {membro.display_name}",
+        description="\n".join(lines),
+        color=WARNING_COLOR
+    )
+
+    apply_brand(embed, interaction.guild)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(
+    name="clearwarn",
+    description="Rimuove tutti gli avvertimenti di un membro"
+)
+@discord.app_commands.describe(membro="Il membro di cui azzerare i warn")
+async def clearwarn(interaction, membro: discord.Member):
+    staff = interaction.user
+
+    if not isinstance(staff, discord.Member):
+        return
+
+    if not member_is_ticket_staff(staff):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi per usare questo comando.",
+            ephemeral=True
+        )
+        return
+
+    await db.clear_warns(membro.id, interaction.guild.id)
+
+    await interaction.response.send_message(
+        f"✅ Warn di {membro.mention} azzerati.",
+        ephemeral=True
+    )
+
+    await send_admin_log(
+        interaction.guild,
+        "🗑️ Warn azzerati",
+        f"Utente: {membro.mention}\nStaff: {staff.mention}",
+        color=INFO_COLOR
+    )
+
+
+@bot.tree.command(
+    name="creator_add",
+    description="Aggiunge uno streamer al Twitch Live Checker"
+)
+@discord.app_commands.describe(
+    twitch_name="Username Twitch dello streamer",
+    membro="Membro Discord collegato allo streamer"
+)
+async def creator_add(interaction, twitch_name: str, membro: discord.Member):
+    if not isinstance(interaction.user, discord.Member):
+        return
+
+    if not member_can_use_setup_commands(interaction.user):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi per usare questo comando.",
+            ephemeral=True
+        )
+        return
+
+    twitch_name = twitch_name.lower().strip()
+
+    await db.add_twitch_streamer(twitch_name, membro.id)
+
+    await interaction.response.send_message(
+        f"✅ Streamer `{twitch_name}` aggiunto e collegato a {membro.mention}.",
+        ephemeral=True
+    )
+
+    await send_admin_log(
+        interaction.guild,
+        "🎥 Streamer aggiunto",
+        (
+            f"Twitch: `{twitch_name}`\n"
+            f"Discord: {membro.mention}\n"
+            f"Aggiunto da: {interaction.user.mention}"
+        ),
+        color=INFO_COLOR
+    )
+
+
+@bot.tree.command(
+    name="creator_remove",
+    description="Rimuove uno streamer dal Twitch Live Checker"
+)
+@discord.app_commands.describe(twitch_name="Username Twitch dello streamer da rimuovere")
+async def creator_remove(interaction, twitch_name: str):
+    if not isinstance(interaction.user, discord.Member):
+        return
+
+    if not member_can_use_setup_commands(interaction.user):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi per usare questo comando.",
+            ephemeral=True
+        )
+        return
+
+    twitch_name = twitch_name.lower().strip()
+    removed = await db.remove_twitch_streamer(twitch_name)
+
+    if not removed:
+        await interaction.response.send_message(
+            f"❌ Streamer `{twitch_name}` non trovato nel database.",
+            ephemeral=True
+        )
+        return
+
+    announced_live_streams.discard(twitch_name)
+
+    await interaction.response.send_message(
+        f"✅ Streamer `{twitch_name}` rimosso.",
+        ephemeral=True
+    )
+
+    await send_admin_log(
+        interaction.guild,
+        "🗑️ Streamer rimosso",
+        (
+            f"Twitch: `{twitch_name}`\n"
+            f"Rimosso da: {interaction.user.mention}"
+        ),
+        color=WARNING_COLOR
+    )
+
 
 if not DISCORD_TOKEN:
     logger.critical("DISCORD_TOKEN non impostato. Uscita.")
