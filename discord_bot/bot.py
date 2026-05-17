@@ -1,7 +1,6 @@
 import os
 import io
 import asyncio
-import traceback
 import aiohttp
 import discord
 import re
@@ -67,8 +66,6 @@ TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET")
 if not DISCORD_TOKEN:
     logger.error("DISCORD_TOKEN non impostato. Il bot non potrà connettersi.")
 
-if GUILD_ID == 0:
-    logger.warning("GUILD_ID non impostato o zero — alcune funzioni potrebbero non trovare la guild corretta.")
 
 if not (TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET):
     logger.info("Credenziali Twitch mancanti: Twitch Live Checker verrà disabilitato.")
@@ -233,7 +230,7 @@ TICKET_TYPES = {
         "channel_prefix": "server",
         "color": WARNING_COLOR
     },
-        "candidatura_creator": {
+    "candidatura_creator": {
         "label": "Candidatura Creator",
         "emoji": "🎥",
         "channel_prefix": "creator",
@@ -379,6 +376,8 @@ def get_ticket_owner_id(channel):
         return channel.topic.split("ticket_owner:")[1].split(" ")[0]
     except Exception:
         return None
+
+
 def extract_form_value(content, field_name):
     lines = content.splitlines()
 
@@ -426,7 +425,9 @@ class ServerPromotionLinkView(discord.ui.View):
                 style=discord.ButtonStyle.link,
                 url=discord_link
             )
-        )    
+        )
+
+
 async def get_server_promotion_logo_file(form_message, channel, owner):
     image_attachment = None
 
@@ -461,8 +462,8 @@ async def get_server_promotion_logo_file(form_message, channel, owner):
 
     except Exception:
         logger.exception("ERRORE LETTURA LOGO SERVER")
-        traceback.print_exc()
         return None
+
 
 def is_redm_stream(stream_data):
     title = stream_data.get("title", "").lower()
@@ -515,6 +516,8 @@ async def send_admin_log(
         embed=embed,
         file=file
     )
+
+
 def automod_channel_is_ignored(channel):
     if not channel:
         return True
@@ -606,7 +609,6 @@ async def automod_timeout(member, seconds, reason):
 
     except Exception:
         logger.exception("ERRORE AUTOMOD TIMEOUT")
-        traceback.print_exc()
         return False
 
 
@@ -621,8 +623,8 @@ async def automod_delete_message(message):
 
     except Exception:
         logger.exception("ERRORE AUTOMOD DELETE")
-        traceback.print_exc()
         return False
+
 
 async def generate_ticket_transcript(channel):
     lines = []
@@ -1013,7 +1015,6 @@ async def twitch_live_checker():
 
     except Exception:
         logger.exception("ERRORE TWITCH LIVE CHECKER")
-        traceback.print_exc()
 
 
 @twitch_live_checker.before_loop
@@ -1262,7 +1263,6 @@ class RolePickerView(discord.ui.View):
 
         except Exception:
             logger.exception("ERRORE ROLE PICKER")
-            traceback.print_exc()
 
             if not interaction.response.is_done():
                 await interaction.response.send_message(
@@ -1388,7 +1388,6 @@ class VerifyView(discord.ui.View):
 
         except Exception:
             logger.exception("ERRORE VERIFICA")
-            traceback.print_exc()
 
             if not interaction.response.is_done():
                 await interaction.response.send_message(
@@ -1526,7 +1525,6 @@ class TicketControlView(discord.ui.View):
 
         except Exception:
             logger.exception("ERRORE TRANSCRIPT/LOG CHIUSURA")
-            traceback.print_exc()
 
         await asyncio.sleep(5)
 
@@ -1539,7 +1537,6 @@ class TicketControlView(discord.ui.View):
 
         except Exception:
             logger.exception("ERRORE ELIMINAZIONE TICKET")
-            traceback.print_exc()
 
 
 
@@ -1644,7 +1641,6 @@ class CreatorApplicationView(discord.ui.View):
 
         except Exception:
             logger.exception("ERRORE APPROVAZIONE CREATOR")
-            traceback.print_exc()
 
             if not interaction.response.is_done():
                 await interaction.response.send_message(
@@ -1718,6 +1714,8 @@ class CreatorApplicationView(discord.ui.View):
             "❌ Candidatura creator rifiutata.",
             ephemeral=True
         )
+
+
 class ServerPromotionModal(discord.ui.Modal):
     def __init__(self):
         super().__init__(
@@ -1953,10 +1951,10 @@ class ServerPromotionApplicationView(discord.ui.View):
         )
 
         logo_file = await get_server_promotion_logo_file(
-        form_message,
-        channel,
-        owner
-)
+            form_message,
+            channel,
+            owner
+        )
 
         if logo_file:
             embed.set_thumbnail(url="attachment://server_logo.png")
@@ -2058,6 +2056,8 @@ class ServerPromotionApplicationView(discord.ui.View):
             "❌ Promozione server rifiutata.",
             ephemeral=True
         )
+
+
 class TicketSelect(discord.ui.Select):
     def __init__(self):
         options = []
@@ -2254,7 +2254,6 @@ class TicketSelect(discord.ui.Select):
 
         except Exception:
             logger.exception("ERRORE APERTURA TICKET")
-            traceback.print_exc()
 
             if not interaction.response.is_done():
                 await interaction.response.send_message(
