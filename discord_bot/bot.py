@@ -798,6 +798,85 @@ def member_has_role(member, keyword):
     )
 
 
+COUNTER_CATEGORY_NAME = "📊 | STATISTICHE"
+COUNTER_CATEGORY_KEYWORD = "statistiche"
+
+COUNTER_CHANNEL_MEMBERS = "contatore_membri"
+COUNTER_CHANNEL_VERIFIED = "contatore_verificati"
+
+
+async def get_or_create_counter_category(guild):
+    category = find_category(guild, COUNTER_CATEGORY_KEYWORD)
+
+    if category:
+        return category
+
+    everyone = guild.default_role
+
+    category = await guild.create_category(
+        name=COUNTER_CATEGORY_NAME,
+        overwrites={
+            everyone: discord.PermissionOverwrite(
+                connect=False,
+                view_channel=True
+            )
+        },
+        reason="Categoria contatori creata automaticamente"
+    )
+
+    return category
+
+
+async def get_counter_channel(guild, keyword):
+    for channel in guild.voice_channels:
+        if keyword in channel.name.lower():
+            return channel
+
+    return None
+
+
+async def update_member_counters(guild):
+    humans = sum(1 for m in guild.members if not m.bot)
+
+    verified_role = find_role(guild, ROLE_VERIFIED_KEYWORD)
+    verified_count = (
+        sum(1 for m in guild.members if verified_role in m.roles)
+        if verified_role else 0
+    )
+
+    members_channel = await get_counter_channel(guild, COUNTER_CHANNEL_MEMBERS)
+    verified_channel = await get_counter_channel(guild, COUNTER_CHANNEL_VERIFIED)
+
+    if members_channel:
+        new_name = f"👥 Membri: {humans}"
+        if members_channel.name != new_name:
+            await members_channel.edit(name=new_name, reason="Aggiornamento contatore")
+
+    if verified_channel:
+        new_name = f"✅ Verificati: {verified_count}"
+        if verified_channel.name != new_name:
+            await verified_channel.edit(name=new_name, reason="Aggiornamento contatore")
+
+
+@tasks.loop(minutes=10)
+async def member_counter_updater():
+    try:
+        guild = bot.get_guild(GUILD_ID)
+
+        if not guild:
+            return
+
+        await update_member_counters(guild)
+
+    except Exception:
+        logger.exception("ERRORE MEMBER COUNTER UPDATER")
+
+
+@member_counter_updater.before_loop
+async def before_member_counter_updater():
+    await bot.wait_until_ready()
+
+
 @tasks.loop(minutes=2)
 async def twitch_live_checker():
     try:
@@ -2306,6 +2385,10 @@ async def on_ready():
         )
     )
 
+    if not member_counter_updater.is_running():
+        member_counter_updater.start()
+        logger.info("Member Counter Updater avviato.")
+
     if not twitch_live_checker.is_running():
         if TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET:
             twitch_live_checker.start()
@@ -2330,6 +2413,25 @@ async def on_ready():
 
     except Exception:
         logger.exception("ERRORE SYNC SLASH COMMANDS")
+
+
+@bot.event
+async def on_member_remove(member):
+    try:
+        await send_admin_log(
+            member.guild,
+            "👋 Membro uscito",
+            (
+                f"Utente: **{member.name}**\n"
+                f"ID: `{member.id}`\n"
+                f"Entrato il: {discord.utils.format_dt(member.joined_at, 'D') if member.joined_at else '`sconosciuto`'}\n"
+                f"Ruoli: {', '.join(r.mention for r in member.roles[1:]) or '`nessuno`'}"
+            ),
+            color=DANGER_COLOR
+        )
+
+    except Exception:
+        logger.exception("ERRORE MEMBER REMOVE")
 
 
 @bot.event
@@ -3172,6 +3274,137 @@ async def setup_creator_guidelines(interaction):
         "✅ Linee guida creator pubblicate.",
         ephemeral=True
     )
+
+@bot.tree.command(
+    name="setup_contatori",
+    description="Crea i canali contatore membri nella sidebar"
+)
+async def setup_contatori(interaction):
+    member = interaction.user
+
+    if not isinstance(member, discord.Member):
+        return
+
+    if not member_can_use_setup_commands(member):
+        await interaction.response.send_message(
+            "❌ Non hai i permessi.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    guild = interaction.guild
+    category = await get_or_create_counter_category(guild)
+    everyone = guild.default_role
+
+    channel_overwrites = {
+        everyone: discord.PermissionOverwrite(
+            connect=False,
+            view_channel=True
+        )
+    }
+
+    members_channel = await get_counter_channel(guild, COUNTER_CHANNEL_MEMBERS)
+
+    if not members_channel:
+        await guild.create_voice_channel(
+            name=f"👥 Membri: 0",
+            category=category,
+            overwrites=channel_overwrites,
+            reason="Contatore membri creato"
+        )
+
+    verified_channel = await get_counter_channel(guild, COUNTER_CHANNEL_VERIFIED)
+
+    if not verified_channel:
+        await guild.create_voice_channel(
+            name=f"✅ Verificati: 0",
+            category=category,
+            overwrites=channel_overwrites,
+            reason="Contatore verificati creato"
+        )
+
+    await update_member_counters(guild)
+
+    await interaction.followup.send(
+        "✅ Canali contatore creati e aggiornati. Si aggiorneranno ogni 10 minuti.",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(
+    name="membri",
+    description="Mostra il conteggio membri del server"
+)
+async def membri(interaction):
+    guild = interaction.guild
+
+    if not guild:
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    total = guild.member_count or len(guild.members)
+    bots = sum(1 for m in guild.members if m.bot)
+    humans = total - bots
+
+    verified_role = find_role(guild, ROLE_VERIFIED_KEYWORD)
+    verified_count = sum(1 for m in guild.members if verified_role and verified_role in m.roles) if verified_role else 0
+
+    new_role = find_role(guild, ROLE_NEW_KEYWORD)
+    new_count = sum(1 for m in guild.members if new_role and new_role in m.roles) if new_role else 0
+
+    staff_counts = {}
+    for keyword in TICKET_STAFF_ROLE_KEYWORDS:
+        role = find_role(guild, keyword)
+        if role:
+            count = sum(1 for m in guild.members if role in m.roles)
+            if count > 0:
+                staff_counts[role.name] = count
+
+    embed = discord.Embed(
+        title=f"👥 Membri — {guild.name}",
+        color=BRAND_COLOR
+    )
+
+    embed.add_field(
+        name="📊 Totale",
+        value=(
+            f"👥 Membri totali: **{total}**\n"
+            f"🧑 Utenti: **{humans}**\n"
+            f"🤖 Bot: **{bots}**"
+        ),
+        inline=False
+    )
+
+    embed.add_field(
+        name="✅ Stato verifica",
+        value=(
+            f"✅ Verificati: **{verified_count}**\n"
+            f"🔒 Non verificati: **{new_count}**"
+        ),
+        inline=False
+    )
+
+    if staff_counts:
+        staff_lines = "\n".join(
+            f"• {name}: **{count}**"
+            for name, count in staff_counts.items()
+        )
+        embed.add_field(
+            name="🛡️ Staff",
+            value=staff_lines,
+            inline=False
+        )
+
+    embed.set_footer(text=f"{BRAND_NAME} • Dati aggiornati in tempo reale")
+
+    if guild.icon:
+        embed.set_thumbnail(url=guild.icon.url)
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 @bot.tree.command(
     name="warn",
