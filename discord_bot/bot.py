@@ -801,8 +801,8 @@ def member_has_role(member, keyword):
 COUNTER_CATEGORY_NAME = "📊 | STATISTICHE"
 COUNTER_CATEGORY_KEYWORD = "statistiche"
 
-COUNTER_CHANNEL_MEMBERS = "contatore_membri"
-COUNTER_CHANNEL_VERIFIED = "contatore_verificati"
+COUNTER_CHANNEL_MEMBERS = "membri:"
+COUNTER_CHANNEL_VERIFIED = "verificati:"
 
 
 async def get_or_create_counter_category(guild):
@@ -3309,7 +3309,7 @@ async def setup_contatori(interaction):
 
     if not members_channel:
         await guild.create_voice_channel(
-            name=f"👥 Membri: 0",
+            name="👥 Membri: 0",
             category=category,
             overwrites=channel_overwrites,
             reason="Contatore membri creato"
@@ -3319,7 +3319,7 @@ async def setup_contatori(interaction):
 
     if not verified_channel:
         await guild.create_voice_channel(
-            name=f"✅ Verificati: 0",
+            name="✅ Verificati: 0",
             category=category,
             overwrites=channel_overwrites,
             reason="Contatore verificati creato"
